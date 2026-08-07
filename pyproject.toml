@@ -1,0 +1,142 @@
+[project]
+name = "reeler"
+version = "0.1.0"
+description = "Open-source, local-first AI platform that turns long videos into short, engaging social clips."
+readme = "README.md"
+license = { text = "AGPL-3.0-or-later" }
+requires-python = ">=3.12"
+dependencies = [
+  "django>=5.1,<5.2",
+  "djangorestframework>=3.15",
+  "drf-spectacular>=0.27",
+  "psycopg[binary]>=3.2",
+  "celery[redis]>=5.4",
+  "redis>=5.0",
+  "django-environ>=0.11",
+  "django-htmx>=1.19",
+  "gunicorn>=23.0",
+  "whitenoise>=6.7",
+  "httpx>=0.27",
+  "pydantic>=2.8",
+  "faster-whisper>=1.0",
+  "scenedetect[opencv]>=0.6.4",
+  "opencv-python-headless>=4.10",
+  "pillow>=10.4",
+]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "django-stubs[compatible-mypy]>=5.0",
+  "djangorestframework-stubs>=3.15",
+  "pytest>=8.3",
+  "pytest-django>=4.9,<4.13",
+  "pytest-cov>=5.0",
+  "pytest-mock>=3.14",
+  "factory-boy>=3.3",
+  "pre-commit>=3.8",
+  "commitizen>=3.29",
+]
+
+[tool.uv]
+package = false
+
+# ---------------------------------------------------------------------------
+# Ruff — lint + format + import sorting (replaces Black/isort)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",     # pycodestyle / pyflakes
+  "I",                # isort
+  "UP",               # pyupgrade
+  "B",                # bugbear
+  "C4",               # comprehensions
+  "DJ",               # django
+  "SIM",              # simplify
+  "RUF",              # ruff-specific
+]
+ignore = [
+  "DJ001",            # nullable CharField (used deliberately, e.g. error_message)
+  "RUF012",           # mutable class attrs (Meta.fields, permission_classes, ...) are idiomatic Django/DRF
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "apps", "domain"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["E501"]
+"**/tests/*.py" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# MyPy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main"]
+mypy_path = "."
+exclude = ["migrations/", "tests/fixtures/"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = "*.migrations.*"
+ignore_errors = true
+
+# Test code is intentionally exempt from strict typing: pytest test
+# functions returning None don't need annotating, and factory-boy's
+# DjangoModelFactory isn't typed to return the model it builds (a known
+# factory-boy/mypy gap with no stubs package), which cascades into false
+# "attr-defined" errors on every factory-built object. Production code
+# under apps/ and domain/ keeps full strict checking.
+[[tool.mypy.overrides]]
+module = ["*.tests.*", "domain.tests.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["celery.*", "environ.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["scenedetect.*", "faster_whisper.*", "cv2.*"]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+
+# ---------------------------------------------------------------------------
+# Pytest / coverage
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py"]
+addopts = "-ra --cov=apps --cov=domain --cov-report=term-missing --cov-report=xml"
+testpaths = ["apps", "domain"]
+
+[tool.coverage.run]
+branch = true
+source = ["apps", "domain"]
+omit = ["*/migrations/*", "*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+
+# ---------------------------------------------------------------------------
+# Commitizen — Conventional Commits + SemVer
+# ---------------------------------------------------------------------------
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+version_files = ["pyproject.toml:version"]
+tag_format = "v$version"

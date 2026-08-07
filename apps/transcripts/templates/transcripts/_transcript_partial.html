@@ -1,0 +1,19 @@
+{% load formatting %}
+{% if video.transcript %}
+<section>
+  <h2 class="text-lg font-semibold mb-1">Transcript</h2>
+  <p class="text-sm text-slate-500 mb-3">
+    Language: {{ video.transcript.language }}
+    {% if video.transcript.language_confidence %}({{ video.transcript.language_confidence|floatformat:2 }} confidence){% endif %}
+    · {{ video.transcript.provider }}/{{ video.transcript.model_name }}
+  </p>
+  <div class="max-h-96 overflow-y-auto rounded-md border border-slate-800 divide-y divide-slate-900">
+    {% for segment in video.transcript.segments.all %}
+      <div class="flex gap-3 px-4 py-2 text-sm">
+        <span class="shrink-0 text-slate-500 tabular-nums">{{ segment.start_time|seconds_to_timestamp }}</span>
+        <span>{{ segment.text }}</span>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

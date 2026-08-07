@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Explicit sources: Tailwind v4 auto-detects templates under the project
+   root, but we scope it to the actual template locations for a faster,
+   more predictable build. */
+@source "../../templates";
+@source "../../apps/**/templates";
