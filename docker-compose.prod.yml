@@ -3,33 +3,39 @@
 #
 # Replaces the dev bind mounts with baked-in images (target: prod), drops
 # host port bindings on internal-only services, and fronts `web` with nginx.
+#
+# Uses Compose's `!override` merge-control tag (Compose v2.24+) on `ports`
+# and `volumes` — those two fields are merged (not replaced) by default
+# across multiple `-f` files, so a plain `ports: []` here would be a no-op
+# and the dev bind mount would silently leak into "prod". `!override` forces
+# a full replacement instead.
 
 services:
   db:
-    ports: []
+    ports: !override []
 
   redis:
-    ports: []
+    ports: !override []
 
   ollama:
-    ports: []
+    ports: !override []
 
   web:
     build:
       target: prod
     command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
-    volumes:
+    volumes: !override
       - media_files:/app/media
       - staticfiles:/app/staticfiles
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.prod
-    ports: []
+    ports: !override []
     restart: unless-stopped
 
   worker:
     build:
       target: prod
-    volumes:
+    volumes: !override
       - media_files:/app/media
       - whisper_cache:/home/reeler/.cache/huggingface
     environment:

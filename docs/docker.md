@@ -50,6 +50,27 @@ image with `web` but needs a different startup sequence.
 | `whisper_cache` | HuggingFace cache — avoids re-downloading the Whisper model every worker restart |
 | `staticfiles` (prod only) | Collected static assets, served by nginx |
 
+**Why `web`/`worker` also mount an anonymous `/app/.venv` volume:** the
+`.:/app` bind mount overlays the *entire* `/app` directory with your host
+checkout, which would otherwise shadow the `.venv` built inside the image
+at `docker build` time (`uv sync` has nothing to install from on a bare
+host checkout). The anonymous volume keeps that specific subdirectory
+backed by the image's own filesystem instead of the bind mount — without
+it, `python`/every installed package breaks inside the container with
+`ModuleNotFoundError`. If you change dependencies, `make build` rebuilds
+the image, but the *running* anonymous volume won't refresh on its own —
+`docker compose down && docker compose up -d --build` (or `docker compose
+up -d --build --force-recreate`) to pick up the new `.venv`.
+
+**Compose merge caveat (`docker-compose.prod.yml`):** by default Compose
+*merges* `ports`/`volumes` across `-f` files (by target), it doesn't
+replace them — a plain `ports: []` override is a silent no-op. The prod
+overlay uses Compose's `!override` tag (Compose v2.24+) on those fields
+specifically so prod actually drops the dev bind mount and host port
+bindings instead of inheriting them. Run `docker compose -f
+docker-compose.yml -f docker-compose.prod.yml config` to inspect the fully
+merged config before deploying if you touch either file.
+
 ## Common tasks
 
 ```bash

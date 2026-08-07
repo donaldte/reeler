@@ -45,6 +45,11 @@ services:
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     volumes:
       - .:/app
+      # Anonymous volume: keeps the image's baked-in .venv (built by `uv
+      # sync` at image-build time) from being shadowed by the `.:/app` bind
+      # mount above, which would otherwise overlay the host's (nonexistent)
+      # .venv and break `python`/every installed package inside the container.
+      - /app/.venv
       - media_files:/app/media
     env_file: .env
     environment:
@@ -66,6 +71,7 @@ services:
     command: ["celery", "-A", "config", "worker", "-l", "info"]
     volumes:
       - .:/app
+      - /app/.venv  # see the comment on the same line in `web` above
       - media_files:/app/media
       - whisper_cache:/root/.cache/huggingface
     env_file: .env
