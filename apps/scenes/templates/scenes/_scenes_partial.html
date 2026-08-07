@@ -1,0 +1,13 @@
+{% load formatting %}
+{% if video.scenes.exists %}
+<section>
+  <h2 class="text-lg font-semibold mb-3">Scenes ({{ video.scenes.count }})</h2>
+  <div class="flex flex-wrap gap-2">
+    {% for scene in video.scenes.all %}
+      <span class="rounded-md border border-slate-800 px-2 py-1 text-xs text-slate-400">
+        {{ scene.start_time|seconds_to_timestamp }} – {{ scene.end_time|seconds_to_timestamp }}
+      </span>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

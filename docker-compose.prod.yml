@@ -1,0 +1,53 @@
+# Production overlay — combine with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Replaces the dev bind mounts with baked-in images (target: prod), drops
+# host port bindings on internal-only services, and fronts `web` with nginx.
+
+services:
+  db:
+    ports: []
+
+  redis:
+    ports: []
+
+  ollama:
+    ports: []
+
+  web:
+    build:
+      target: prod
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+    volumes:
+      - media_files:/app/media
+      - staticfiles:/app/staticfiles
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    ports: []
+    restart: unless-stopped
+
+  worker:
+    build:
+      target: prod
+    volumes:
+      - media_files:/app/media
+      - whisper_cache:/home/reeler/.cache/huggingface
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - staticfiles:/app/staticfiles:ro
+      - media_files:/app/media:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  staticfiles:

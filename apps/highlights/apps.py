@@ -1,0 +1,8 @@
+from django.apps import AppConfig
+
+
+class HighlightsConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.highlights"
+    label = "highlights"
+    verbose_name = "Highlights"

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Log in — Reeler{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-sm">
+  <h1 class="text-xl font-semibold mb-6">Log in</h1>
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    {% for field in form %}
+      <div>
+        <label class="block text-sm text-slate-400 mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}
+          <p class="text-sm text-red-400 mt-1">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endfor %}
+    {% for error in form.non_field_errors %}
+      <p class="text-sm text-red-400">{{ error }}</p>
+    {% endfor %}
+    <button type="submit" class="w-full rounded-md bg-indigo-600 px-4 py-2 font-medium hover:bg-indigo-500">
+      Log in
+    </button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% load formatting %}
+<div id="video-status"
+     class="rounded-md border border-slate-800 p-4 space-y-3"
+     hx-get="{% url 'videos:status_fragment' video.id %}"
+     {% if not video.is_terminal %}hx-trigger="every 2s"{% endif %}
+     hx-swap="outerHTML">
+  <div class="flex items-center justify-between">
+    <span class="font-medium">{{ video.get_status_display }}</span>
+    <span class="text-sm text-slate-400">{{ video.progress_percent }}%</span>
+  </div>
+
+  <div class="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+    <div class="h-full bg-indigo-500 transition-all" style="width: {{ video.progress_percent }}%"></div>
+  </div>
+
+  <ul class="grid grid-cols-2 gap-2 text-sm text-slate-400 sm:grid-cols-4">
+    {% for step, step_status in video.pipeline_steps.items %}
+      <li class="flex items-center gap-1.5">
+        {% if step_status == "done" %}
+          <span class="text-emerald-400">✓</span>
+        {% elif step_status == "running" %}
+          <span class="text-indigo-400 animate-pulse">●</span>
+        {% elif step_status == "failed" %}
+          <span class="text-red-400">✕</span>
+        {% else %}
+          <span class="text-slate-600">○</span>
+        {% endif %}
+        {{ step }}
+      </li>
+    {% endfor %}
+  </ul>
+
+  {% if video.error_message %}
+    <p class="text-sm text-red-400">{{ video.error_message }}</p>
+  {% endif %}
+
+  {% if video.status == "completed" %}
+    <p class="text-sm text-emerald-400">Analysis complete.</p>
+  {% endif %}
+</div>

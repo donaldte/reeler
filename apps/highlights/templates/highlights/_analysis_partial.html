@@ -1,0 +1,42 @@
+{% load formatting %}
+{% if video.analysis_result %}
+<section class="space-y-4">
+  <div>
+    <h2 class="text-lg font-semibold mb-1">{{ video.analysis_result.suggested_title }}</h2>
+    <p class="text-sm text-slate-400">{{ video.analysis_result.summary }}</p>
+  </div>
+
+  <div class="text-sm">
+    <p class="text-slate-500 mb-1">Suggested description</p>
+    <p>{{ video.analysis_result.suggested_description }}</p>
+  </div>
+
+  {% if video.analysis_result.suggested_hashtags %}
+    <div class="flex flex-wrap gap-2">
+      {% for tag in video.analysis_result.suggested_hashtags %}
+        <span class="rounded-full bg-indigo-950 text-indigo-300 px-2.5 py-0.5 text-xs">{{ tag }}</span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div>
+    <h3 class="font-medium mb-2">Highlights</h3>
+    <ol class="space-y-2">
+      {% for highlight in video.analysis_result.highlights.all %}
+        <li class="rounded-md border border-slate-800 p-3 text-sm">
+          <div class="flex items-center justify-between">
+            <span class="font-medium">
+              #{{ highlight.rank }}
+              {% if highlight.suggested_clip_title %} — {{ highlight.suggested_clip_title }}{% endif %}
+            </span>
+            <span class="text-slate-500 tabular-nums">
+              {{ highlight.start_time|seconds_to_timestamp }} – {{ highlight.end_time|seconds_to_timestamp }}
+            </span>
+          </div>
+          <p class="text-slate-400 mt-1">{{ highlight.rationale }}</p>
+        </li>
+      {% endfor %}
+    </ol>
+  </div>
+</section>
+{% endif %}

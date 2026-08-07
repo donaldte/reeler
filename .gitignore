@@ -1,0 +1,55 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.Python
+
+# --- uv / venv ---
+.venv/
+venv/
+
+# --- Django ---
+*.log
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+static/css/output.css
+tests/tmp_media/
+
+# --- Env ---
+.env
+.env.*
+!.env.example
+
+# --- Testing / coverage ---
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Tooling ---
+bin/tailwindcss
+node_modules/
+
+# --- AI model caches (never commit downloaded weights) ---
+.cache/
+*.gguf
+*.safetensors
+*.bin
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# --- Docker ---
+docker-compose.override.yml
