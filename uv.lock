@@ -1718,7 +1718,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "celery", extras = ["redis"], specifier = ">=5.4" },
+    { name = "celery", extras = ["redis"], specifier = ">=5.6.3" },
     { name = "django", specifier = ">=5.1,<5.2" },
     { name = "django-environ", specifier = ">=0.11" },
     { name = "django-htmx", specifier = ">=1.19" },
