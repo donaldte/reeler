@@ -152,9 +152,12 @@ motion, and no way to export more than a short highlight reel.
   window with a Ken Burns pan/zoom (`zoompan`) and a short crossfade
   in/out, remapped from the source video's timeline onto the render's
   output timeline the same way `captions.py` remaps transcript segments.
-- **Logo/watermark**: `ExportSettings.logo_image`, composited last in the
+- **Logo/watermark**: `ExportSettings.logo_image` + `logo_position`
+  (top/bottom × left/right, default bottom-right), composited last in the
   filter chain (after captions/B-roll — brand always wins the stacking
-  order) at fixed opacity in a fixed corner, in both render modes.
+  order) at fixed opacity, in both render modes. Always scaled to ~18% of
+  the output frame's width before compositing — see "Fixed shortly after
+  landing" below for why that scale step is load-bearing, not cosmetic.
 - **Visible B-roll log**: the video detail page and the
   `/api/v1/videos/{id}/analysis/` response both now list every
   `BrollAsset` (thumbnail, search query, timestamp window) — previously
@@ -179,6 +182,15 @@ at least one `Highlight` to exist before rendering — which would have
 made every `full_video`-mode video permanently unrenderable the moment
 the prompt stopped generating highlights for it. Both gates are now
 `export_mode`-aware.
+
+A second, unrelated bug from the same pass: the watermark composited at
+whatever resolution the uploaded logo image actually was — for any
+normal photo/logo upload, that meant it covered a large fraction (often
+all) of the frame instead of sitting as a small corner mark, and there
+was no way to choose which corner. `build_watermark_filter_complex` now
+scales the logo to ~18% of the output frame's width before compositing,
+`ExportSettings.logo_position` picks the corner (default bottom-right —
+top corners on a 9:16 short tend to collide with platform UI chrome).
 
 **Explicitly out of scope for this pass** (deliberate, not forgotten):
 Pixabay as a second stock-media provider (same pattern, trivial

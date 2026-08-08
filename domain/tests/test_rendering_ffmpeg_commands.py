@@ -127,16 +127,30 @@ def test_crossfade_concat_command_without_audio_has_no_acrossfade():
     assert "[aout]" not in maps
 
 
-def test_watermark_filter_complex_default_top_right():
-    fragment = build_watermark_filter_complex("0:v", 2, "top_right")
-    assert "[2:v]format=rgba" in fragment
+def test_watermark_filter_complex_scales_down_before_compositing():
+    """Regression test: the watermark used to composite at its native
+    resolution, which for any normal-sized uploaded image meant it could
+    cover the entire frame instead of sitting as a small corner mark.
+    """
+    fragment = build_watermark_filter_complex("0:v", 2, "top_right", 1080)
+    assert "[2:v]scale=194:-2,format=rgba" in fragment  # round(1080 * 0.18)
     assert "colorchannelmixer=aa=0.8" in fragment
     assert "[0:v][wm]overlay=x=main_w-w-24:y=24[vwatermark]" in fragment
 
 
-def test_watermark_filter_complex_unknown_position_falls_back_to_default():
-    fragment = build_watermark_filter_complex("0:v", 1, "center-ish-nonsense")
-    assert "x=main_w-w-24:y=24" in fragment
+def test_watermark_filter_complex_bottom_right_position():
+    fragment = build_watermark_filter_complex("0:v", 2, "bottom_right", 1080)
+    assert "x=main_w-w-24:y=main_h-h-24" in fragment
+
+
+def test_watermark_filter_complex_top_right_position_differs_in_y():
+    fragment = build_watermark_filter_complex("0:v", 2, "top_right", 1080)
+    assert "x=main_w-w-24:y=24[vwatermark]" in fragment
+
+
+def test_watermark_filter_complex_unknown_position_falls_back_to_bottom_right():
+    fragment = build_watermark_filter_complex("0:v", 1, "center-ish-nonsense", 1080)
+    assert "x=main_w-w-24:y=main_h-h-24" in fragment
 
 
 def test_final_encode_command_mp4_codecs():
@@ -254,6 +268,8 @@ def test_final_encode_command_with_watermark_composites_last():
         None,
         "mp4",
         watermark_path=Path("/tmp/logo.png"),
+        out_width=1080,
+        out_height=1920,
         has_audio=True,
         output_path=Path("/tmp/out.mp4"),
     )
@@ -267,7 +283,7 @@ def test_final_encode_command_with_watermark_composites_last():
 
 def test_final_encode_command_with_broll_requires_output_dims():
     spec = BrollSpec(image_input_index=0, start=1.0, end=3.0)
-    with pytest.raises(ValueError, match="broll_out_width"):
+    with pytest.raises(ValueError, match="out_width"):
         build_final_encode_command(
             Path("/tmp/in.mp4"),
             None,
@@ -275,6 +291,19 @@ def test_final_encode_command_with_broll_requires_output_dims():
             "mp4",
             broll_specs=[spec],
             broll_image_paths=[Path("/tmp/broll.jpg")],
+            has_audio=True,
+            output_path=Path("/tmp/out.mp4"),
+        )
+
+
+def test_final_encode_command_with_watermark_requires_output_dims():
+    with pytest.raises(ValueError, match="out_width"):
+        build_final_encode_command(
+            Path("/tmp/in.mp4"),
+            None,
+            None,
+            "mp4",
+            watermark_path=Path("/tmp/logo.png"),
             has_audio=True,
             output_path=Path("/tmp/out.mp4"),
         )
@@ -290,8 +319,8 @@ def test_final_encode_command_with_mismatched_broll_lists_raises():
             "mp4",
             broll_specs=[spec],
             broll_image_paths=[],
-            broll_out_width=1080,
-            broll_out_height=1920,
+            out_width=1080,
+            out_height=1920,
             has_audio=True,
             output_path=Path("/tmp/out.mp4"),
         )
@@ -304,6 +333,8 @@ def test_final_encode_command_with_watermark_and_no_audio_has_no_audio_map():
         None,
         "mp4",
         watermark_path=Path("/tmp/logo.png"),
+        out_width=1080,
+        out_height=1920,
         has_audio=False,
         output_path=Path("/tmp/out.mp4"),
     )
@@ -321,8 +352,8 @@ def test_final_encode_command_with_broll_appends_image_input_and_overlay():
         "mp4",
         broll_specs=[spec],
         broll_image_paths=[Path("/tmp/broll.jpg")],
-        broll_out_width=1080,
-        broll_out_height=1920,
+        out_width=1080,
+        out_height=1920,
         has_audio=True,
         output_path=Path("/tmp/out.mp4"),
     )

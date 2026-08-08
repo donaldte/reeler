@@ -14,6 +14,7 @@ def test_defaults():
     assert settings_obj.output_duration_seconds == 60
     assert settings_obj.export_mode == ExportSettings.ExportMode.HIGHLIGHT_REEL
     assert not settings_obj.logo_image
+    assert settings_obj.logo_position == ExportSettings.LogoPosition.BOTTOM_RIGHT
     assert settings_obj.image_generation_enabled is False
     assert settings_obj.internet_media_search_enabled is False
 

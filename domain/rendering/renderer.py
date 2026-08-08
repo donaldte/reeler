@@ -27,6 +27,7 @@ from domain.rendering.clip_selection import HighlightLike, select_clips_for_dura
 from domain.rendering.dimensions import compute_crop_params, get_output_dimensions
 from domain.rendering.dto import BrollSpec, ClipSpec
 from domain.rendering.ffmpeg_commands import (
+    DEFAULT_WATERMARK_POSITION,
     DEFAULT_XFADE_TRANSITION,
     XFADE_TRANSITION_MAP,
     build_concat_command,
@@ -105,9 +106,10 @@ def _resolve_broll(
     return broll_specs, broll_image_paths
 
 
-def _resolve_watermark(settings_snapshot: dict) -> Path | None:
+def _resolve_watermark(settings_snapshot: dict) -> tuple[Path | None, str]:
     logo_path = settings_snapshot.get("logo_image_path")
-    return Path(logo_path) if logo_path else None
+    position = settings_snapshot.get("logo_position", DEFAULT_WATERMARK_POSITION)
+    return (Path(logo_path) if logo_path else None), position
 
 
 def render_video(
@@ -256,7 +258,7 @@ def _render_highlight_reel(
         )
 
     broll_specs, broll_image_paths = _resolve_broll(broll_assets, clips, settings_snapshot)
-    watermark_path = _resolve_watermark(settings_snapshot)
+    watermark_path, watermark_position = _resolve_watermark(settings_snapshot)
 
     report(80, "encoding")
     export_format = settings_snapshot["export_format"]
@@ -269,9 +271,10 @@ def _render_highlight_reel(
             export_format,
             broll_specs=broll_specs,
             broll_image_paths=broll_image_paths,
-            broll_out_width=out_dims.width,
-            broll_out_height=out_dims.height,
+            out_width=out_dims.width,
+            out_height=out_dims.height,
             watermark_path=watermark_path,
+            watermark_position=watermark_position,
             has_audio=has_audio,
             output_path=final_output_path,
         ),
@@ -343,7 +346,7 @@ def _render_full_video(
     broll_specs, broll_image_paths = _resolve_broll(
         broll_assets, whole_video_clip, settings_snapshot
     )
-    watermark_path = _resolve_watermark(settings_snapshot)
+    watermark_path, watermark_position = _resolve_watermark(settings_snapshot)
 
     report(60, "encoding")
     export_format = settings_snapshot["export_format"]
@@ -359,6 +362,7 @@ def _render_full_video(
             broll_specs=broll_specs,
             broll_image_paths=broll_image_paths,
             watermark_path=watermark_path,
+            watermark_position=watermark_position,
             has_audio=has_audio,
             output_path=final_output_path,
         ),

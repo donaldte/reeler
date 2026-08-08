@@ -112,6 +112,16 @@ def test_create_render_job_snapshot_includes_export_mode_and_broll_type():
     assert render_job.settings_snapshot["broll_type"] == "stock_footage"
 
 
+def test_create_render_job_snapshot_includes_logo_position():
+    video = _completed_video_with_highlights()
+    ExportSettingsFactory(video=video, logo_position=ExportSettings.LogoPosition.TOP_LEFT)
+
+    with patch("apps.renders.tasks.render_video_task.delay"):
+        render_job = create_render_job(video)
+
+    assert render_job.settings_snapshot["logo_position"] == "top_left"
+
+
 def test_create_render_job_snapshot_logo_image_path_none_when_no_logo():
     video = _completed_video_with_highlights()
     ExportSettingsFactory(video=video)

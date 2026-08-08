@@ -139,5 +139,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   create_render_job` and `apps/renders/tasks.py::render_video_task` both
   unconditionally required at least one `Highlight` to exist, which
   would have made every `full_video`-mode video permanently unrenderable.
+- The watermark composited at the uploaded logo image's native
+  resolution — for any normal photo/logo, that meant it covered most or
+  all of the frame instead of sitting as a small corner mark, and there
+  was no way to pick which corner. `build_watermark_filter_complex` now
+  scales it to ~18% of the output frame's width first; new
+  `ExportSettings.logo_position` (default bottom-right) picks the corner.
 
 [Unreleased]: https://github.com/donaldte/reeler/compare/main...HEAD

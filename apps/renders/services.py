@@ -20,6 +20,7 @@ SNAPSHOT_FIELDS = [
     "transition_style",
     "music_style",
     "broll_type",
+    "logo_position",
     "subtitle_language",
     "video_quality",
     "export_format",

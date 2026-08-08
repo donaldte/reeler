@@ -93,6 +93,14 @@ class ExportSettings(TimeStampedModel):
         MOV = "mov", "MOV"
         WEBM = "webm", "WebM"
 
+    class LogoPosition(models.TextChoices):
+        # Values must match domain.rendering.ffmpeg_commands.
+        # WATERMARK_POSITION_EXPRESSIONS' keys exactly.
+        TOP_LEFT = "top_left", "Top left"
+        TOP_RIGHT = "top_right", "Top right"
+        BOTTOM_LEFT = "bottom_left", "Bottom left"
+        BOTTOM_RIGHT = "bottom_right", "Bottom right"
+
     # Maps AiCreativityLevel -> LLM sampling temperature. Not user-facing
     # directly — "creative" is a friendlier concept than a raw float.
     CREATIVITY_TEMPERATURE_MAP: dict[str, float] = {
@@ -174,8 +182,16 @@ class ExportSettings(TimeStampedModel):
         upload_to=upload_logo_path,
         null=True,
         blank=True,
+        max_length=512,
         help_text="Optional watermark, composited in a fixed corner for the "
         "whole render. Presence of a file is what enables it -- no separate toggle.",
+    )
+    logo_position = models.CharField(
+        max_length=16,
+        choices=LogoPosition.choices,
+        default=LogoPosition.BOTTOM_RIGHT,
+        help_text="Where the logo/watermark sits — always scaled down to a small "
+        "corner mark, never covering the video.",
     )
 
     class Meta:

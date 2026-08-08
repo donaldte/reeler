@@ -30,6 +30,7 @@ def _base_form_data(**overrides) -> dict:
         "subtitle_language": "auto",
         "voice_over_style": ExportSettings.VoiceOverStyle.NONE,
         "broll_type": ExportSettings.BrollType.NONE,
+        "logo_position": ExportSettings.LogoPosition.BOTTOM_RIGHT,
         "video_quality": ExportSettings.VideoQuality.Q_1080P,
         "export_format": ExportSettings.ExportFormat.MP4,
     }
@@ -84,6 +85,7 @@ def test_valid_post_saves_settings_and_redirects(client):
         "subtitle_language": "auto",
         "voice_over_style": ExportSettings.VoiceOverStyle.NONE,
         "broll_type": ExportSettings.BrollType.NONE,
+        "logo_position": ExportSettings.LogoPosition.BOTTOM_RIGHT,
         "video_quality": ExportSettings.VideoQuality.Q_1080P,
         "export_format": ExportSettings.ExportFormat.MP4,
     }
@@ -117,6 +119,7 @@ def test_valid_post_triggers_rerun_when_completed_and_live_field_changed(client)
         "subtitle_language": "auto",
         "voice_over_style": ExportSettings.VoiceOverStyle.NONE,
         "broll_type": ExportSettings.BrollType.NONE,
+        "logo_position": ExportSettings.LogoPosition.BOTTOM_RIGHT,
         "video_quality": ExportSettings.VideoQuality.Q_1080P,
         "export_format": ExportSettings.ExportFormat.MP4,
     }

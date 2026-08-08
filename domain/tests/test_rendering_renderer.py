@@ -46,6 +46,7 @@ def _settings(**overrides):
         "video_quality": "1080p",
         "export_format": "mp4",
         "logo_image_path": None,
+        "logo_position": "bottom_right",
     }
     base.update(overrides)
     return base
@@ -388,6 +389,29 @@ def test_render_video_composites_watermark_when_logo_path_present(tmp_path):
 
     final_call_cmd = mock_run.call_args_list[-1][0][0]
     assert "/tmp/logo.png" in final_call_cmd
+    filter_complex = final_call_cmd[final_call_cmd.index("-filter_complex") + 1]
+    assert "scale=" in filter_complex  # watermark is scaled down, not composited at full size
+
+
+def test_render_video_watermark_respects_logo_position_setting(tmp_path):
+    highlights = [_Highlight(rank=1, start_time=0.0, end_time=10.0)]
+
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=10.0,
+            transcript_segments=[],
+            highlights=highlights,
+            settings_snapshot=_settings(logo_image_path="/tmp/logo.png", logo_position="top_left"),
+            workdir=tmp_path,
+        )
+
+    final_call_cmd = mock_run.call_args_list[-1][0][0]
+    filter_complex = final_call_cmd[final_call_cmd.index("-filter_complex") + 1]
+    assert "overlay=x=24:y=24" in filter_complex  # top_left, not the bottom_right default
 
 
 def test_render_video_works_without_progress_callback(tmp_path):

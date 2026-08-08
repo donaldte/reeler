@@ -28,8 +28,16 @@ MUSIC_MIX_VOLUME = 0.25
 WATERMARK_OPACITY = 0.8
 WATERMARK_MARGIN_PX = 24
 
+# The watermark is scaled to this fraction of the output frame's width
+# before compositing (aspect ratio preserved) -- without this, a
+# normal-resolution uploaded logo would composite at its own native
+# resolution and could cover the entire frame. ~18% reads as a small
+# corner logo across the aspect ratios this project supports (9:16, 1:1,
+# 16:9), not something that competes with the video itself.
+WATERMARK_WIDTH_FRACTION = 0.18
+
 # overlay= x/y expressions per corner, in terms of overlay's own w/h (the
-# watermark image's own dimensions after decode) and the base video's
+# watermark's dimensions *after* the scale above) and the base video's
 # main_w/main_h — the standard overlay-filter idiom for anchoring to an
 # edge with a fixed pixel margin regardless of watermark image size.
 WATERMARK_POSITION_EXPRESSIONS: dict[str, tuple[str, str]] = {
@@ -38,7 +46,10 @@ WATERMARK_POSITION_EXPRESSIONS: dict[str, tuple[str, str]] = {
     "bottom_left": (f"{WATERMARK_MARGIN_PX}", f"main_h-h-{WATERMARK_MARGIN_PX}"),
     "bottom_right": (f"main_w-w-{WATERMARK_MARGIN_PX}", f"main_h-h-{WATERMARK_MARGIN_PX}"),
 }
-DEFAULT_WATERMARK_POSITION = "top_right"
+# Bottom corner by default -- a logo overlaying the top of a 9:16 short
+# tends to collide with a platform's own UI chrome (username/caption
+# overlays there); bottom-right is the conventional short-form placement.
+DEFAULT_WATERMARK_POSITION = "bottom_right"
 
 # Crossfade duration for true xfade/acrossfade transitions between
 # concatenated clips (see build_crossfade_concat_command). Replaces the
@@ -260,14 +271,22 @@ def build_watermark_filter_complex(
     base_video_label: str,
     watermark_input_index: int,
     position: str,
+    out_width: int,
     *,
     output_label: str = "vwatermark",
 ) -> str:
-    """Returns a filter_complex fragment compositing a semi-transparent
-    logo (already added as ffmpeg input `watermark_input_index`, e.g.
-    `-i logo.png`) onto `base_video_label` for the *entire* render — no
-    `enable=` gate, unlike broll's windowed overlay, since the watermark
-    should be visible start to finish.
+    """Returns a filter_complex fragment compositing a small,
+    semi-transparent logo (already added as ffmpeg input
+    `watermark_input_index`, e.g. `-i logo.png`) onto `base_video_label`
+    for the *entire* render — no `enable=` gate, unlike broll's windowed
+    overlay, since the watermark should be visible start to finish.
+
+    `scale={target_w}:-2` is load-bearing, not cosmetic: without it, the
+    watermark composites at whatever resolution the uploaded image
+    actually is, which for any normal photo/logo upload means it covers
+    a large fraction (often all) of the frame instead of sitting as a
+    small corner mark. `-2` (not `-1`) keeps the scaled height even, as
+    required by libx264's default 4:2:0 chroma subsampling.
 
     `format=rgba,colorchannelmixer=aa={WATERMARK_OPACITY}` is what
     actually reduces opacity — overlay itself has no opacity option;
@@ -275,11 +294,12 @@ def build_watermark_filter_complex(
     PNG with its own partial transparency gets scaled down further rather
     than replaced outright.
     """
+    target_w = max(2, round(out_width * WATERMARK_WIDTH_FRACTION))
     x_expr, y_expr = WATERMARK_POSITION_EXPRESSIONS.get(
         position, WATERMARK_POSITION_EXPRESSIONS[DEFAULT_WATERMARK_POSITION]
     )
     return (
-        f"[{watermark_input_index}:v]format=rgba,"
+        f"[{watermark_input_index}:v]scale={target_w}:-2,format=rgba,"
         f"colorchannelmixer=aa={WATERMARK_OPACITY}[wm];"
         f"[{base_video_label}][wm]overlay=x={x_expr}:y={y_expr}[{output_label}]"
     )
@@ -323,8 +343,8 @@ def build_final_encode_command(
     *,
     broll_specs: Sequence[BrollSpec] = (),
     broll_image_paths: Sequence[Path] = (),
-    broll_out_width: int = 0,
-    broll_out_height: int = 0,
+    out_width: int = 0,
+    out_height: int = 0,
     watermark_path: Path | None = None,
     watermark_position: str = DEFAULT_WATERMARK_POSITION,
     has_audio: bool,
@@ -343,13 +363,15 @@ def build_final_encode_command(
     behind a full-frame B-roll still. Watermark last, always: nothing
     (captions, B-roll) should be able to obscure brand/attribution.
 
-    `broll_out_width`/`broll_out_height` are required (raises ValueError
-    otherwise) only when `broll_specs` is non-empty — they're what
-    domain.rendering.broll.build_broll_filter_complex needs to size its
-    Ken Burns zoompan.
+    `out_width`/`out_height` are required (raises ValueError otherwise)
+    whenever `broll_specs` or `watermark_path` is set — B-roll needs them
+    to size its Ken Burns zoompan
+    (domain.rendering.broll.build_broll_filter_complex), the watermark
+    needs `out_width` to scale itself down to a small corner mark instead
+    of compositing at its native resolution.
     """
-    if broll_specs and (broll_out_width <= 0 or broll_out_height <= 0):
-        raise ValueError("broll_out_width/broll_out_height are required when broll_specs is set")
+    if (broll_specs or watermark_path) and (out_width <= 0 or out_height <= 0):
+        raise ValueError("out_width/out_height are required when broll_specs/watermark_path is set")
 
     codecs = EXPORT_FORMAT_CODECS.get(export_format, EXPORT_FORMAT_CODECS[DEFAULT_EXPORT_FORMAT])
     needs_complex = bool(music_path or broll_specs or watermark_path)
@@ -388,7 +410,7 @@ def build_final_encode_command(
     video_ref = "0:v"  # unbracketed while still a raw input stream
 
     broll_fragment = build_broll_filter_complex(
-        video_ref, resolved_broll_specs, broll_out_width, broll_out_height
+        video_ref, resolved_broll_specs, out_width, out_height
     )
     if broll_fragment:
         filter_complex_parts.append(broll_fragment)
@@ -403,7 +425,9 @@ def build_final_encode_command(
     if watermark_path is not None:
         assert watermark_index is not None
         filter_complex_parts.append(
-            build_watermark_filter_complex(video_ref, watermark_index, watermark_position)
+            build_watermark_filter_complex(
+                video_ref, watermark_index, watermark_position, out_width
+            )
         )
         video_ref = "vwatermark"
     video_touched = video_ref != "0:v"
@@ -508,7 +532,9 @@ def build_full_video_render_command(
     if watermark_path is not None:
         assert watermark_index is not None
         filter_complex_parts.append(
-            build_watermark_filter_complex(video_ref, watermark_index, watermark_position)
+            build_watermark_filter_complex(
+                video_ref, watermark_index, watermark_position, out_dims.width
+            )
         )
         video_ref = "vwatermark"
 

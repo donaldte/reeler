@@ -13,6 +13,7 @@ DEFAULT_SNAPSHOT = {
     "transition_style": "fade",
     "music_style": "none",
     "broll_type": "none",
+    "logo_position": "bottom_right",
     "subtitle_language": "auto",
     "video_quality": "1080p",
     "export_format": "mp4",
