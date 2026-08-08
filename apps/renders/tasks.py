@@ -46,6 +46,7 @@ def render_video_task(self: Task, render_job_id: str) -> str:
         highlights = list(video.analysis_result.highlights.all())
         if not highlights:
             raise PermanentPipelineError("No highlights available to render.")
+        broll_assets = list(video.analysis_result.broll_assets.all())
         transcript_segments = (
             list(video.transcript.segments.all()) if hasattr(video, "transcript") else []
         )
@@ -57,8 +58,10 @@ def render_video_task(self: Task, render_job_id: str) -> str:
                 source_width=video.width or 0,
                 source_height=video.height or 0,
                 has_audio=bool(video.has_audio),
+                video_duration=video.duration_seconds or 0.0,
                 transcript_segments=transcript_segments,
                 highlights=highlights,
+                broll_assets=broll_assets,
                 settings_snapshot=render_job.settings_snapshot,
                 workdir=workdir,
                 progress_callback=lambda pct, stage: update_render_progress(

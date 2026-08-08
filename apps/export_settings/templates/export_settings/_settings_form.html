@@ -9,7 +9,7 @@
   </button>
 
   <div x-show="open" x-cloak class="border-t border-slate-800 px-4 py-4">
-    <form method="post" action="{% url 'export_settings:save' video.id %}" class="space-y-6">
+    <form method="post" action="{% url 'export_settings:save' video.id %}" enctype="multipart/form-data" class="space-y-6">
       {% csrf_token %}
 
       <div>
@@ -39,7 +39,8 @@
       <div>
         <h3 class="text-sm font-semibold text-slate-200">Export settings</h3>
         <p class="text-xs text-slate-500 mb-3">
-          Saved for later — used once rendering the final video is available (Phase 3). No effect yet.
+          Used when you render — see docs/roadmap.md for which options are fully live vs. still
+          disclosed simplifications (e.g. subtitle translation, AI-generated B-roll).
         </p>
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {% for field in form %}

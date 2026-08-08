@@ -24,8 +24,16 @@ class _Segment:
     text: str
 
 
+@dataclass
+class _BrollAsset:
+    start_time: float
+    end_time: float
+    image_path: str | None = "/tmp/broll_source.jpg"
+
+
 def _settings(**overrides):
     base = {
+        "export_mode": "highlight_reel",
         "output_duration_seconds": 60,
         "aspect_ratio": "9:16",
         "caption_style": "bold",
@@ -33,9 +41,11 @@ def _settings(**overrides):
         "color_theme": "default",
         "transition_style": "fade",
         "music_style": "none",
+        "broll_type": "none",
         "subtitle_language": "auto",
         "video_quality": "1080p",
         "export_format": "mp4",
+        "logo_image_path": None,
     }
     base.update(overrides)
     return base
@@ -56,6 +66,7 @@ def test_render_video_runs_full_pipeline_and_returns_output_path(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=segments,
             highlights=highlights,
             settings_snapshot=_settings(),
@@ -64,7 +75,8 @@ def test_render_video_runs_full_pipeline_and_returns_output_path(tmp_path):
         )
 
     assert output_path == tmp_path / "output.mp4"
-    # extract (1 clip) + concat + final encode = 3 ffmpeg invocations
+    # extract (1 clip) + concat (single clip -> hard cut, nothing to
+    # cross-fade with) + final encode = 3 ffmpeg invocations
     assert mock_run.call_count == 3
     assert [c[0][0][0] for c in mock_run.call_args_list] == ["ffmpeg", "ffmpeg", "ffmpeg"]
     stages = [stage for _, stage in progress_calls]
@@ -84,6 +96,7 @@ def test_render_video_skips_captions_when_disabled(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=_settings(caption_style="none"),
@@ -108,6 +121,7 @@ def test_render_video_raises_permanent_error_with_stderr_on_ffmpeg_failure(tmp_p
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=_settings(),
@@ -127,6 +141,7 @@ def test_render_video_raises_permanent_error_when_ffmpeg_missing(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=_settings(),
@@ -146,6 +161,7 @@ def test_render_video_raises_permanent_error_on_timeout(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=_settings(),
@@ -163,6 +179,7 @@ def test_render_video_generates_and_mixes_music_when_requested(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=_settings(music_style="upbeat"),
@@ -190,6 +207,7 @@ def test_render_video_skips_music_generation_when_style_is_none(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=_settings(music_style="none"),
@@ -216,6 +234,7 @@ def test_render_video_missing_music_style_key_defaults_to_no_music(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=settings,
@@ -225,10 +244,10 @@ def test_render_video_missing_music_style_key_defaults_to_no_music(tmp_path):
     assert mock_run.call_count == 3
 
 
-def test_render_video_per_clip_transition_cut_skips_fade_for_that_clip(tmp_path):
+def test_render_video_uses_hard_concat_when_transition_style_none(tmp_path):
     highlights = [
-        _Highlight(rank=1, start_time=0.0, end_time=10.0, transition="cut"),
-        _Highlight(rank=2, start_time=20.0, end_time=30.0, transition=None),
+        _Highlight(rank=1, start_time=0.0, end_time=10.0),
+        _Highlight(rank=2, start_time=20.0, end_time=30.0),
     ]
 
     with patch("subprocess.run", return_value=_ok()) as mock_run:
@@ -237,23 +256,25 @@ def test_render_video_per_clip_transition_cut_skips_fade_for_that_clip(tmp_path)
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=40.0,
             transcript_segments=[],
             highlights=highlights,
-            settings_snapshot=_settings(transition_style="fade"),  # transitions on globally
+            settings_snapshot=_settings(transition_style="none"),
             workdir=tmp_path,
         )
 
-    extract_calls = mock_run.call_args_list[:2]
-    first_clip_vf = extract_calls[0][0][0][extract_calls[0][0][0].index("-vf") + 1]
-    second_clip_vf = extract_calls[1][0][0][extract_calls[1][0][0].index("-vf") + 1]
-    assert "fade" not in first_clip_vf  # explicit "cut" suggestion skips the fade
-    assert "fade" in second_clip_vf  # no suggestion -> defaults to fading
+    # extract(2) + concat + encode = 4 -- the concat step is the plain
+    # concat-demuxer, not xfade (no -filter_complex for it)
+    concat_call_cmd = mock_run.call_args_list[2][0][0]
+    assert "-filter_complex" not in concat_call_cmd
+    assert "-c" in concat_call_cmd and "copy" in concat_call_cmd
 
 
-def test_render_video_transition_style_none_disables_fades_even_if_highlight_suggests_fade(
-    tmp_path,
-):
-    highlights = [_Highlight(rank=1, start_time=0.0, end_time=10.0, transition="fade")]
+def test_render_video_uses_crossfade_concat_when_transition_style_set_and_multiple_clips(tmp_path):
+    highlights = [
+        _Highlight(rank=1, start_time=0.0, end_time=10.0),
+        _Highlight(rank=2, start_time=20.0, end_time=30.0),
+    ]
 
     with patch("subprocess.run", return_value=_ok()) as mock_run:
         render_video(
@@ -261,15 +282,112 @@ def test_render_video_transition_style_none_disables_fades_even_if_highlight_sug
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=40.0,
             transcript_segments=[],
             highlights=highlights,
-            settings_snapshot=_settings(transition_style="none"),  # master switch off
+            settings_snapshot=_settings(transition_style="fade"),
             workdir=tmp_path,
         )
 
-    extract_cmd = mock_run.call_args_list[0][0][0]
-    vf = extract_cmd[extract_cmd.index("-vf") + 1]
-    assert "fade" not in vf
+    concat_call_cmd = mock_run.call_args_list[2][0][0]
+    assert "-filter_complex" in concat_call_cmd
+    filter_complex = concat_call_cmd[concat_call_cmd.index("-filter_complex") + 1]
+    assert "xfade=transition=fade" in filter_complex
+    assert "acrossfade" in filter_complex
+
+
+def test_render_video_falls_back_to_hard_concat_for_single_clip_even_with_transition_style_set(
+    tmp_path,
+):
+    """A single surviving clip has nothing to cross-fade with regardless
+    of transition_style -- select_clips_for_duration can legitimately
+    return exactly one clip.
+    """
+    highlights = [_Highlight(rank=1, start_time=0.0, end_time=10.0)]
+
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=10.0,
+            transcript_segments=[],
+            highlights=highlights,
+            settings_snapshot=_settings(transition_style="fade"),
+            workdir=tmp_path,
+        )
+
+    concat_call_cmd = mock_run.call_args_list[1][0][0]
+    assert "-filter_complex" not in concat_call_cmd
+    assert "-c" in concat_call_cmd and "copy" in concat_call_cmd
+
+
+def test_render_video_composites_broll_when_asset_fully_contained_in_clip(tmp_path):
+    highlights = [_Highlight(rank=1, start_time=0.0, end_time=10.0)]
+    broll_assets = [_BrollAsset(start_time=2.0, end_time=5.0)]
+
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=10.0,
+            transcript_segments=[],
+            highlights=highlights,
+            broll_assets=broll_assets,
+            settings_snapshot=_settings(broll_type="stock_footage"),
+            workdir=tmp_path,
+        )
+
+    final_call_cmd = mock_run.call_args_list[-1][0][0]
+    assert "/tmp/broll_source.jpg" in final_call_cmd
+    assert "-loop" in final_call_cmd
+    filter_complex = final_call_cmd[final_call_cmd.index("-filter_complex") + 1]
+    assert "zoompan" in filter_complex
+
+
+def test_render_video_skips_broll_when_asset_has_no_downloaded_image(tmp_path):
+    highlights = [_Highlight(rank=1, start_time=0.0, end_time=10.0)]
+    broll_assets = [_BrollAsset(start_time=2.0, end_time=5.0, image_path=None)]
+
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=10.0,
+            transcript_segments=[],
+            highlights=highlights,
+            broll_assets=broll_assets,
+            settings_snapshot=_settings(broll_type="stock_footage"),
+            workdir=tmp_path,
+        )
+
+    final_call_cmd = mock_run.call_args_list[-1][0][0]
+    assert "-loop" not in final_call_cmd
+
+
+def test_render_video_composites_watermark_when_logo_path_present(tmp_path):
+    highlights = [_Highlight(rank=1, start_time=0.0, end_time=10.0)]
+
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=10.0,
+            transcript_segments=[],
+            highlights=highlights,
+            settings_snapshot=_settings(logo_image_path="/tmp/logo.png"),
+            workdir=tmp_path,
+        )
+
+    final_call_cmd = mock_run.call_args_list[-1][0][0]
+    assert "/tmp/logo.png" in final_call_cmd
 
 
 def test_render_video_works_without_progress_callback(tmp_path):
@@ -280,9 +398,75 @@ def test_render_video_works_without_progress_callback(tmp_path):
             source_width=1920,
             source_height=1080,
             has_audio=True,
+            video_duration=10.0,
             transcript_segments=[],
             highlights=highlights,
             settings_snapshot=_settings(),
             workdir=tmp_path,
         )
     assert output_path.name == "output.mp4"
+
+
+def test_render_video_full_video_mode_skips_clip_selection_and_uses_single_pass(tmp_path):
+    progress_calls = []
+
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        output_path = render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=45.0,
+            transcript_segments=[],
+            highlights=[],  # export_mode=full_video never touches highlights
+            settings_snapshot=_settings(export_mode="full_video"),
+            workdir=tmp_path,
+            progress_callback=lambda pct, stage: progress_calls.append((pct, stage)),
+        )
+
+    assert output_path == tmp_path / "output.mp4"
+    assert mock_run.call_count == 1  # a single composed ffmpeg pass, no extract/concat
+    stages = [stage for _, stage in progress_calls]
+    assert "selecting_clips" not in stages
+    assert "extracting_clips" not in stages
+    assert "concatenating" not in stages
+    only_call_cmd = mock_run.call_args_list[0][0][0]
+    assert only_call_cmd[only_call_cmd.index("-i") + 1] == str(tmp_path / "source.mp4")
+
+
+def test_render_video_full_video_mode_skips_captions_when_disabled(tmp_path):
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=45.0,
+            transcript_segments=[],
+            highlights=[],
+            settings_snapshot=_settings(export_mode="full_video", caption_style="none"),
+            workdir=tmp_path,
+        )
+
+    only_call_cmd = mock_run.call_args_list[0][0][0]
+    assert "-vf" not in only_call_cmd
+    assert not (tmp_path / "captions.ass").exists()
+
+
+def test_render_video_full_video_mode_generates_music_for_whole_duration(tmp_path):
+    with patch("subprocess.run", return_value=_ok()) as mock_run:
+        render_video(
+            source_path=tmp_path / "source.mp4",
+            source_width=1920,
+            source_height=1080,
+            has_audio=True,
+            video_duration=45.0,
+            transcript_segments=[],
+            highlights=[],
+            settings_snapshot=_settings(export_mode="full_video", music_style="chill"),
+            workdir=tmp_path,
+        )
+
+    assert mock_run.call_count == 2  # music generation + the single encode pass
+    music_call_cmd = mock_run.call_args_list[0][0][0]
+    assert "duration=45.000" in " ".join(music_call_cmd)

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 
 from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS, DEFAULT_TEMPERATURE
@@ -20,6 +20,13 @@ class HighlightDTO:
 
 
 @dataclass(frozen=True)
+class BrollSuggestionDTO:
+    start: float
+    end: float
+    query: str
+
+
+@dataclass(frozen=True)
 class AnalysisDTO:
     summary: str
     suggested_title: str
@@ -29,6 +36,7 @@ class AnalysisDTO:
     provider: str
     model: str
     raw_response: dict
+    broll_suggestions: list[BrollSuggestionDTO] = field(default_factory=list)
 
 
 class LLMProvider(ABC):

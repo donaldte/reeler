@@ -29,6 +29,10 @@ domain/
   transcription/        SpeechToTextProvider ABC + implementations
   scene_detection/       SceneDetector ABC + implementation
   ai/                    LLMProvider ABC + implementations, prompts, registry
+  stock_media/           StockMediaProvider ABC + implementations, registry
+                          (identical pattern to ai/, different capability)
+  rendering/             Pure ffmpeg command builders + the one module
+                          (renderer.py) with subprocess side effects
   tests/                 Unit tests, all I/O mocked
 ```
 
@@ -48,7 +52,7 @@ or `domain/` instead.
 | `videos` | `Project`, `UploadedVideo`; upload flow; pipeline orchestration entrypoint | `accounts`, `common` |
 | `transcripts` | `Transcript`, `TranscriptSegment` | `videos`, `domain.transcription` |
 | `scenes` | `Scene` | `videos`, `domain.scene_detection` |
-| `highlights` | `AnalysisResult`, `Highlight` | `videos`, `transcripts`, `scenes`, `domain.ai`, `export_settings` |
+| `highlights` | `AnalysisResult`, `Highlight`, `BrollAsset` | `videos`, `transcripts`, `scenes`, `domain.ai`, `domain.stock_media`, `export_settings` |
 | `export_settings` | `ExportSettings` — analysis/export customization | `videos` |
 | `renders` | `RenderJob` — FFmpeg render attempts | `videos`, `export_settings`, `highlights`, `transcripts`, `domain.rendering` |
 | `ai_providers` | `AIProviderConfig` catalog (admin visibility only, phase 1) | — |
@@ -81,12 +85,22 @@ case really is a narrow, form-specific exception, not a pattern to spread.
 ```
 User ─< Project ─< UploadedVideo ─┬─1 Transcript ─< TranscriptSegment
                                    ├─< Scene
-                                   ├─1 AnalysisResult ─< Highlight
+                                   ├─1 AnalysisResult ─┬─< Highlight
+                                   │                    └─< BrollAsset
                                    ├─< ExportSettings
                                    └─< RenderJob ─→ ExportSettings (FK, traceability only)
 
 AIProviderConfig  (standalone catalog, no FK — see docs/ai_pipeline.md)
 ```
+
+`BrollAsset` is a second child of `AnalysisResult`, alongside `Highlight`
+— both come from the same LLM analysis call
+(`apps/highlights/tasks.py::generate_analysis_task`), so it lives in
+`apps.highlights` rather than a dedicated app. Unlike `Highlight`, it's
+best-effort: a row can exist with no downloaded `image` (a
+`domain.stock_media` search/download failure skips just that suggestion,
+never fails the analysis — see docs/roadmap.md's "Real video editing
+pass").
 
 `RenderJob.export_settings` is a live FK kept for admin/traceability, but
 the render task never reads it directly — it reads

@@ -128,6 +128,11 @@ MEDIA_ROOT = BASE_DIR / "media"
 # Uploaded video size guardrails (bytes) — enforced in apps.videos forms/serializers.
 MAX_UPLOAD_SIZE_BYTES = env.int("MAX_UPLOAD_SIZE_BYTES", default=1024 * 1024 * 1024)  # 1 GB
 
+# Logo/watermark upload size guardrail — much smaller than video uploads,
+# a dedicated constant rather than reusing MAX_UPLOAD_SIZE_BYTES. Enforced
+# in apps.export_settings.forms.ExportSettingsForm.clean_logo_image.
+MAX_LOGO_UPLOAD_SIZE_BYTES = env.int("MAX_LOGO_UPLOAD_SIZE_BYTES", default=5 * 1024 * 1024)  # 5 MB
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------
@@ -203,6 +208,19 @@ SCENE_DETECTION_THRESHOLD = env.float("SCENE_DETECTION_THRESHOLD", default=27.0)
 SCENE_DETECTION_MIN_SCENE_LEN_SECONDS = env.float(
     "SCENE_DETECTION_MIN_SCENE_LEN_SECONDS", default=0.6
 )
+
+# ---------------------------------------------------------------------------
+# Stock media provider selection — env-driven, resolved by
+# domain.stock_media.registry. Same shape as the AI provider selection
+# above. Only required when ExportSettings.broll_type != "none".
+# ---------------------------------------------------------------------------
+STOCK_MEDIA_PROVIDER = env.str("STOCK_MEDIA_PROVIDER", default="pexels")
+STOCK_MEDIA_PROVIDER_KWARGS = {
+    "pexels": {
+        "api_key": env.str("PEXELS_API_KEY", default=""),
+        "timeout": env.float("PEXELS_TIMEOUT", default=30.0),
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Logging — structured, environment-overridable level.

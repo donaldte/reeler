@@ -5,6 +5,10 @@ from apps.common.models import TimeStampedModel
 from apps.videos.models import UploadedVideo
 
 
+def upload_logo_path(instance: "ExportSettings", filename: str) -> str:
+    return f"export_settings/{instance.video_id}/{instance.id}/{filename}"
+
+
 class ExportSettings(TimeStampedModel):
     """User-configurable preferences for a video's analysis and (future)
     render. FK rather than O2O to `UploadedVideo` on purpose — the roadmap
@@ -49,6 +53,10 @@ class ExportSettings(TimeStampedModel):
         FADE = "fade", "Fade"
         SLIDE = "slide", "Slide"
         ZOOM = "zoom", "Zoom"
+
+    class ExportMode(models.TextChoices):
+        HIGHLIGHT_REEL = "highlight_reel", "Highlight reel"
+        FULL_VIDEO = "full_video", "Full video (entire source, polished)"
 
     class MusicStyle(models.TextChoices):
         NONE = "none", "None"
@@ -100,7 +108,11 @@ class ExportSettings(TimeStampedModel):
     # --- Live: actually affect analysis today ---
     num_highlights = models.PositiveSmallIntegerField(
         default=3,
-        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        # 30, not some smaller "reasonable" number: a longer highlight
+        # reel needs more highlights to fill it (see export_mode/
+        # output_duration_seconds below) -- still bounded because each
+        # highlight is its own ffmpeg re-encode, a real per-clip cost.
+        validators=[MinValueValidator(1), MaxValueValidator(30)],
         help_text="How many highlight moments to ask the AI for.",
     )
     ai_creativity_level = models.CharField(
@@ -108,8 +120,22 @@ class ExportSettings(TimeStampedModel):
     )
 
     # --- Inert until phase 3 (rendering) reads them ---
+    export_mode = models.CharField(
+        max_length=16,
+        choices=ExportMode.choices,
+        default=ExportMode.HIGHLIGHT_REEL,
+        help_text="Highlight reel: a subset of AI-picked moments, fit to "
+        "output_duration_seconds. Full video: the entire source, in order, "
+        "with the same captions/B-roll/logo/music polish -- "
+        "output_duration_seconds and num_highlights are unused in this mode.",
+    )
     output_duration_seconds = models.PositiveSmallIntegerField(
-        default=60, validators=[MinValueValidator(15), MaxValueValidator(240)]
+        default=60,
+        # No max: relies on PositiveSmallIntegerField's own ~32767s
+        # ceiling as the only remaining sanity bound. A short-form-only
+        # cap here would work against export_mode=full_video's whole
+        # point (see also num_highlights above).
+        validators=[MinValueValidator(15)],
     )
     aspect_ratio = models.CharField(
         max_length=8, choices=AspectRatio.choices, default=AspectRatio.VERTICAL
@@ -143,6 +169,13 @@ class ExportSettings(TimeStampedModel):
     )
     export_format = models.CharField(
         max_length=8, choices=ExportFormat.choices, default=ExportFormat.MP4
+    )
+    logo_image = models.ImageField(
+        upload_to=upload_logo_path,
+        null=True,
+        blank=True,
+        help_text="Optional watermark, composited in a fixed corner for the "
+        "whole render. Presence of a file is what enables it -- no separate toggle.",
     )
 
     class Meta:

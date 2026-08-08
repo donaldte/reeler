@@ -17,7 +17,11 @@ pytestmark = pytest.mark.django_db
 
 def _video_with_transcript_and_analysis():
     video = UploadedVideoFactory(
-        status=UploadedVideo.Status.COMPLETED, width=1920, height=1080, has_audio=True
+        status=UploadedVideo.Status.COMPLETED,
+        width=1920,
+        height=1080,
+        has_audio=True,
+        duration_seconds=30.0,
     )
     transcript = Transcript.objects.create(
         video=video, language="en", language_confidence=0.9, full_text="hi",
@@ -56,6 +60,24 @@ def test_render_video_task_marks_completed_and_saves_output_file(tmp_path):
     assert call_kwargs["source_height"] == 1080
     assert call_kwargs["has_audio"] is True
     assert call_kwargs["source_path"] == Path(video.file.path)
+    assert call_kwargs["video_duration"] == 30.0
+    assert call_kwargs["broll_assets"] == []
+
+
+def test_render_video_task_passes_broll_assets_through(tmp_path):
+    video = _video_with_transcript_and_analysis()
+    video.analysis_result.broll_assets.create(query="laptop", start_time=1.0, end_time=3.0)
+    render_job = RenderJobFactory(video=video)
+
+    fake_output = tmp_path / "output.mp4"
+    fake_output.write_bytes(b"x")
+
+    with patch("apps.renders.tasks.render_video", return_value=fake_output) as mock_render:
+        render_video_task(str(render_job.id))
+
+    broll_assets = mock_render.call_args.kwargs["broll_assets"]
+    assert len(broll_assets) == 1
+    assert broll_assets[0].query == "laptop"
 
 
 def test_render_video_task_marks_rendering_before_starting(tmp_path):

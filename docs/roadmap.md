@@ -66,15 +66,6 @@ highlights through to a downloadable video:
 **Disclosed simplifications, not silent gaps** (see
 `domain/rendering/captions.py`, `ffmpeg_commands.py` docstrings):
 
-- **Transitions**: `fade`/`slide`/`zoom` all currently render as the same
-  short fade-in/fade-out on each clip, not true crossfade between clips.
-  `xfade`-based crossfades need precise stream-timing alignment between
-  two inputs — a real fast-follow once this simpler version is confirmed
-  working on real hardware (see [docs/development.md](development.md) for
-  why command-construction correctness and execution correctness had to
-  be verified separately for this feature). Since the quality pass below,
-  each highlight can also carry its own AI-suggested `cut`/`fade`
-  preference, which refines (never overrides) this global setting.
 - **Karaoke captions**: `caption_style="karaoke"` renders identically to
   `"bold"` — true word-by-word highlighting needs word-level timestamps,
   and `FasterWhisperProvider` currently requests `word_timestamps=False`.
@@ -87,9 +78,9 @@ highlights through to a downloadable video:
   `lavfi` synthetic sources (`domain/rendering/music.py`) — a simple
   layered ambient pad per `music_style`, not a curated real track. No
   downloaded/bundled audio, deliberately, to avoid licensing risk and
-  keep rendering fully offline. **B-roll** (real or AI-generated stock
-  footage/images) remains fully deferred to Phase 4 (see below) —
-  `ExportSettings.broll_type` stays saved-but-inert.
+  keep rendering fully offline.
+- Transitions (fake fade-to-black) and B-roll used to be listed here as
+  simplifications/gaps — both are now real, see the pass below.
 
 **Render quality & reliability pass** (post-launch, after the first real
 render came out far short of its target duration):
@@ -112,14 +103,80 @@ render came out far short of its target duration):
   margin for the platform-UI safe area — best-effort visual tuning, see
   `domain/rendering/captions.py`.
 
+## Real video editing pass — done
+
+The biggest single pass yet, prompted by feedback that a render didn't
+look like a real edit: no true transitions, no images, no logo, no
+motion, and no way to export more than a short highlight reel.
+
+- **`export_mode`**: a genuinely new render mode, not an extension of the
+  highlight-reel one. `"highlight_reel"` (default, unchanged) picks a
+  subset of AI-selected moments to fit `output_duration_seconds`.
+  `"full_video"` (new) keeps 100% of the source, in order — no clip
+  selection/extraction/concatenation at all, just crop/scale + the same
+  captions/B-roll/logo/music polish composed in a **single** ffmpeg pass
+  (`domain/rendering/ffmpeg_commands.py::build_full_video_render_command`,
+  `renderer.py::_render_full_video`). `output_duration_seconds`/
+  `num_highlights` are unused in this mode. Their own validators were
+  also relaxed (`num_highlights` 10→30, `output_duration_seconds`'
+  240s/4-minute cap removed) so a longer curated highlight reel is
+  reachable too, independent of full-video mode.
+- **True crossfade transitions** (`domain/rendering/ffmpeg_commands.py::
+  build_crossfade_concat_command`): real `xfade`/`acrossfade` between
+  concatenated highlight clips, replacing the old per-clip fade-to-black.
+  Requires ffmpeg ≥ 4.3. `TransitionStyle.ZOOM` maps to xfade's plain
+  `"fade"` transition rather than `"zoomin"` for now — `zoomin` shipped
+  in a later ffmpeg release than the base xfade filter, a real
+  version-compatibility risk not yet confirmed on real hardware; trivial
+  one-line upgrade once it is. A single surviving highlight (a real,
+  reachable case) always falls back to the plain hard-cut concat
+  regardless of `transition_style` — nothing to cross-fade with one clip.
+  The AI's per-highlight `"cut"` override only has meaning in the
+  `transition_style="none"` hard-cut path now — mixing hard-cut and
+  crossfade seams in one `xfade` chain would need per-seam offset-math
+  branching, a documented limitation rather than a silently dropped one.
+- **Real B-roll** (`ExportSettings.BrollType.STOCK_FOOTAGE`, now actually
+  implemented — `AI_GENERATED`/`MIXED` stay inert, see Phase 4 below):
+  the same LLM analysis call that produces highlights now also suggests
+  up to 5 short B-roll moments (`broll_suggestions` — a fixed,
+  non-user-facing cap to protect the CPU-only generation-time budget, see
+  `docs/ai_pipeline.md`), each a short visual search query. A new
+  `domain.stock_media` capability (mirrors `domain.ai`'s ABC+registry+
+  provider pattern exactly, reusing `domain.ai.providers.http_utils`'
+  error classification unchanged) searches Pexels and downloads the top
+  result as a new `apps.highlights.models.BrollAsset` — a second child of
+  `AnalysisResult`, populated best-effort right after analysis completes
+  (a Pexels failure — no key, rate limit, no results — skips just that
+  suggestion and never turns a successful analysis into a failed video).
+  `domain/rendering/broll.py` composites each asset full-frame over its
+  window with a Ken Burns pan/zoom (`zoompan`) and a short crossfade
+  in/out, remapped from the source video's timeline onto the render's
+  output timeline the same way `captions.py` remaps transcript segments.
+- **Logo/watermark**: `ExportSettings.logo_image`, composited last in the
+  filter chain (after captions/B-roll — brand always wins the stacking
+  order) at fixed opacity in a fixed corner, in both render modes.
+- Full pass detail, including the exact filter-graph composition and the
+  worked crossfade-offset math, lives in code comments/docstrings across
+  `domain/rendering/{ffmpeg_commands,broll,renderer}.py` — this entry is
+  the summary, not the source of truth.
+
+**Explicitly out of scope for this pass** (deliberate, not forgotten):
+Pixabay as a second stock-media provider (same pattern, trivial
+follow-up); AI-generated B-roll images (needs a hosted image-gen API —
+no GPU on the reference hardware makes local generation impractical, see
+Phase 4); word-by-word karaoke captions (needs word-level Whisper
+timestamps, unrelated to any of the above).
+
 ## Phase 4 — media sourcing
 
-- **Royalty-free stock search**: pluggable `StockMediaProvider` interface
-  (mirrors the AI provider pattern) — Pexels/Pixabay/Openverse as initial
-  backends, selected the same way `AI_LLM_PROVIDER` is.
+- **Pixabay**: a second `domain.stock_media` provider alongside Pexels
+  (same ABC/registry pattern, already built — see the pass above).
 - **AI image generation**: `domain.ai.base.ImageGenProvider` already has
-  an interface — implement it against local Stable Diffusion/Flux
-  (`diffusers`) as the local-first default, with a hosted fallback.
+  an interface — implement it against a hosted API (a local Stable
+  Diffusion/Flux default was the original plan, but is impractical on
+  CPU-only reference hardware — this needs its own scoping pass to
+  reconsider that default) for `ExportSettings.BrollType.AI_GENERATED`/
+  `MIXED`, still inert.
 - **AI video generation**: further out; interface not yet designed.
 
 ## Phase 5 — quality-of-life

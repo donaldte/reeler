@@ -1,7 +1,9 @@
 from unittest.mock import patch
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
+from apps.export_settings.models import ExportSettings
 from apps.export_settings.tests.factories import ExportSettingsFactory
 from apps.highlights.models import AnalysisResult
 from apps.renders.models import RenderJob
@@ -73,6 +75,43 @@ def test_create_render_job_uses_default_settings_when_none_saved():
     with patch("apps.renders.tasks.render_video_task.delay"):
         render_job = create_render_job(video)
     assert render_job.settings_snapshot["aspect_ratio"] == "9:16"  # ExportSettings default
+
+
+def test_create_render_job_snapshot_includes_export_mode_and_broll_type():
+    video = _completed_video_with_highlights()
+    ExportSettingsFactory(
+        video=video,
+        export_mode=ExportSettings.ExportMode.FULL_VIDEO,
+        broll_type=ExportSettings.BrollType.STOCK_FOOTAGE,
+    )
+
+    with patch("apps.renders.tasks.render_video_task.delay"):
+        render_job = create_render_job(video)
+
+    assert render_job.settings_snapshot["export_mode"] == "full_video"
+    assert render_job.settings_snapshot["broll_type"] == "stock_footage"
+
+
+def test_create_render_job_snapshot_logo_image_path_none_when_no_logo():
+    video = _completed_video_with_highlights()
+    ExportSettingsFactory(video=video)
+
+    with patch("apps.renders.tasks.render_video_task.delay"):
+        render_job = create_render_job(video)
+
+    assert render_job.settings_snapshot["logo_image_path"] is None
+
+
+def test_create_render_job_snapshot_captures_logo_image_path():
+    video = _completed_video_with_highlights()
+    logo = SimpleUploadedFile("logo.png", b"fake-png-bytes", content_type="image/png")
+    ExportSettingsFactory(video=video, logo_image=logo)
+
+    with patch("apps.renders.tasks.render_video_task.delay"):
+        render_job = create_render_job(video)
+
+    assert render_job.settings_snapshot["logo_image_path"] is not None
+    assert render_job.settings_snapshot["logo_image_path"].endswith("logo.png")
 
 
 def test_mark_rendering_sets_status_and_progress():

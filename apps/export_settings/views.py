@@ -22,7 +22,7 @@ def save_export_settings_view(request: AuthenticatedHttpRequest, video_id: str) 
     """
     video = get_object_or_404(UploadedVideo, pk=video_id, project__owner=request.user)
     settings_obj = get_or_create_export_settings(video)
-    form = ExportSettingsForm(request.POST, instance=settings_obj)
+    form = ExportSettingsForm(request.POST, request.FILES, instance=settings_obj)
 
     if form.is_valid():
         changed_fields = set(form.changed_data)

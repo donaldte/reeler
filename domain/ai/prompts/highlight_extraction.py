@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from domain.ai.base import AnalysisDTO, HighlightDTO
+from domain.ai.base import AnalysisDTO, BrollSuggestionDTO, HighlightDTO
 from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS
 from domain.exceptions import ProviderResponseParseError
 from domain.scene_detection.base import SceneDTO
@@ -26,6 +26,15 @@ ChatMessages = list[dict[str, str]]
 # leaving more of the timeout budget for the (slower, per-token) generation
 # phase above. See docs/ai_pipeline.md#operational-notes.
 MAX_TRANSCRIPT_CHARS_IN_PROMPT = 6000
+
+# A fixed, non-user-facing cap on B-roll suggestions (not an
+# ExportSettings field) — protects the same CPU-only generation-time
+# budget MAX_TRANSCRIPT_CHARS_IN_PROMPT protects, from the other end:
+# more suggestions means more output tokens the model has to generate,
+# which is the documented dominant cost on this hardware (see
+# docs/ai_pipeline.md#operational-notes). B-roll coverage is deliberately
+# sparse rather than exhaustive for this reason.
+MAX_BROLL_SUGGESTIONS = 5
 
 SYSTEM_PROMPT = (
     "You are a professional short-form video editor. Given a transcript and scene "
@@ -65,12 +74,21 @@ class HighlightSchema(BaseModel):
     transition: Literal["cut", "fade"] | None = None
 
 
+class BrollSuggestionSchema(BaseModel):
+    start: float
+    end: float
+    # Short visual search query (2-4 words), fed directly to a stock-photo
+    # search API (domain.stock_media) -- not a caption, not a rationale.
+    query: str = Field(max_length=80)
+
+
 class AnalysisSchema(BaseModel):
     summary: str
     suggested_title: str
     suggested_description: str
     suggested_hashtags: list[str]
     highlights: list[HighlightSchema]
+    broll_suggestions: list[BrollSuggestionSchema] = []
 
 
 def _transcript_lines_for_prompt(transcript: TranscriptionResult) -> tuple[str, bool]:
@@ -147,6 +165,9 @@ def build_prompt(
                 "transition": "cut",
             },
         ],
+        "broll_suggestions": [
+            {"start": 30.0, "end": 34.0, "query": "laptop coding closeup"},
+        ],
     }
 
     return (
@@ -158,9 +179,14 @@ def build_prompt(
         f"seconds long, spread across the full video timeline rather than clustered "
         f'together. For each highlight, also pick one relevant "emoji" capturing its '
         f'mood or topic, and a "transition" of either "cut" (for an abrupt, punchy '
-        f'moment) or "fade" (for a softer topic change). Respond with JSON matching '
-        f"exactly this shape (this example shows 2 highlights to illustrate the "
-        f"repeating structure — your response must contain {num_highlights}):\n"
+        f'moment) or "fade" (for a softer topic change). Also suggest up to '
+        f'{MAX_BROLL_SUGGESTIONS} short B-roll moments ("broll_suggestions") -- '
+        f"non-overlapping time windows, each a few seconds long, where a stock photo "
+        f'illustrating what\'s being said would work well visually; "query" should be '
+        f"a short (2-4 word) visual search phrase, not a caption or summary. Respond "
+        f"with JSON matching exactly this shape (the highlights example shows 2 to "
+        f"illustrate the repeating structure — your response must contain "
+        f"{num_highlights}):\n"
         f"{json.dumps(schema_example, indent=2)}"
     )
 
@@ -283,6 +309,10 @@ def schema_to_dto(
                 transition=h.transition,
             )
             for h in schema.highlights
+        ],
+        broll_suggestions=[
+            BrollSuggestionDTO(start=b.start, end=b.end, query=b.query)
+            for b in schema.broll_suggestions
         ],
         provider=provider,
         model=model,

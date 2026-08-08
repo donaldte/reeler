@@ -10,6 +10,7 @@ from apps.videos.models import UploadedVideo
 # The subset of ExportSettings fields the renderer actually reads —
 # see domain/rendering/renderer.py::render_video's settings_snapshot usage.
 SNAPSHOT_FIELDS = [
+    "export_mode",
     "output_duration_seconds",
     "aspect_ratio",
     "caption_style",
@@ -17,6 +18,7 @@ SNAPSHOT_FIELDS = [
     "color_theme",
     "transition_style",
     "music_style",
+    "broll_type",
     "subtitle_language",
     "video_quality",
     "export_format",
@@ -38,6 +40,14 @@ def create_render_job(video: UploadedVideo) -> RenderJob:
 
     export_settings = get_or_create_export_settings(video)
     snapshot = {field: getattr(export_settings, field) for field in SNAPSHOT_FIELDS}
+    # logo_image is a FieldFile, not JSON-serializable -- can't go through
+    # the plain getattr loop above. A point-in-time file *path* reference,
+    # same tradeoff every other snapshot field already accepts: if the
+    # logo is changed/removed after this RenderJob is created, this
+    # render still uses the file that existed right now.
+    snapshot["logo_image_path"] = (
+        export_settings.logo_image.path if export_settings.logo_image else None
+    )
 
     render_job = RenderJob.objects.create(
         video=video, export_settings=export_settings, settings_snapshot=snapshot

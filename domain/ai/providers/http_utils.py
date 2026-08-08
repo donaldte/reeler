@@ -1,4 +1,7 @@
-"""Shared HTTP error classification for LLM providers.
+"""Shared HTTP error classification, originally written for LLM providers
+but generic enough that domain.stock_media.providers.pexels_provider
+reuses it unchanged too — the classification logic has nothing
+LLM-specific about it, just "is this 4xx worth retrying".
 
 A 4xx response is (almost always) a permanent misconfiguration — wrong
 model name, invalid API key, malformed request — that retrying will never

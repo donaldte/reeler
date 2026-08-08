@@ -260,7 +260,10 @@ def test_build_prompt_demands_exact_highlight_count_with_two_example_highlights(
         transcript=_transcript(), scenes=_scenes(), video_duration=10.0, num_highlights=3
     )
     assert "EXACTLY 3" in prompt
-    assert "up to" not in prompt.lower()
+    # "up to" is legitimately used elsewhere now (the B-roll suggestion
+    # count is intentionally soft) -- only the highlight-count wording
+    # itself must stay unhedged.
+    assert "up to 3 highlight" not in prompt.lower()
     example_section = prompt.split('"highlights": [', 1)[1]
     assert example_section.count('"rank"') == 2
     assert '"emoji"' in prompt

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AnalysisResult, Highlight
+from .models import AnalysisResult, BrollAsset, Highlight
 
 
 class HighlightInline(admin.TabularInline):
@@ -16,7 +16,20 @@ class HighlightInline(admin.TabularInline):
     )
 
 
+class BrollAssetInline(admin.TabularInline):
+    model = BrollAsset
+    extra = 0
+    readonly_fields = (
+        "query",
+        "start_time",
+        "end_time",
+        "image",
+        "source_provider",
+        "source_id",
+    )
+
+
 @admin.register(AnalysisResult)
 class AnalysisResultAdmin(admin.ModelAdmin):
     list_display = ("video", "suggested_title", "llm_provider", "llm_model", "created_at")
-    inlines = [HighlightInline]
+    inlines = [HighlightInline, BrollAssetInline]

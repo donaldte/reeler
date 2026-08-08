@@ -19,7 +19,7 @@ scope results to the requesting user's own videos.
 | `GET` | `/api/v1/videos/{id}/status/` | Pipeline status (poll while processing) |
 | `GET` | `/api/v1/videos/{video_id}/transcript/` | Full transcript + segments |
 | `GET` | `/api/v1/videos/{video_id}/scenes/` | Detected scene boundaries |
-| `GET` | `/api/v1/videos/{video_id}/analysis/` | Summary, suggested title/description/hashtags, highlights |
+| `GET` | `/api/v1/videos/{video_id}/analysis/` | Summary, suggested title/description/hashtags, highlights, B-roll assets |
 | `GET` | `/api/v1/videos/{video_id}/settings/` | Export settings (creates defaults on first touch) |
 | `PATCH` | `/api/v1/videos/{video_id}/settings/` | Update export settings; re-runs analysis if `num_highlights`/`ai_creativity_level` changed on a `COMPLETED` video (response includes `rerun_triggered: bool`) |
 | `POST` | `/api/v1/videos/{video_id}/renders/` | Start a render — 400 with `error.code: "not_ready"` if the video hasn't finished analysis or has no highlights |
@@ -43,6 +43,6 @@ every error response has the same shape:
 
 ## Roadmap
 
-Project management endpoints and B-roll-related render options
+Project management endpoints and AI-generated-B-roll render options
 (currently saved but inert — see [docs/roadmap.md](roadmap.md)) are
 planned as phase 4 lands.

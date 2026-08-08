@@ -12,8 +12,21 @@ def test_defaults():
     assert settings_obj.ai_creativity_level == ExportSettings.AiCreativityLevel.BALANCED
     assert settings_obj.aspect_ratio == ExportSettings.AspectRatio.VERTICAL
     assert settings_obj.output_duration_seconds == 60
+    assert settings_obj.export_mode == ExportSettings.ExportMode.HIGHLIGHT_REEL
+    assert not settings_obj.logo_image
     assert settings_obj.image_generation_enabled is False
     assert settings_obj.internet_media_search_enabled is False
+
+
+def test_num_highlights_and_duration_accept_generous_values():
+    """Regression test: these were capped at 10/240 respectively, which
+    made a longer highlight reel or export_mode=full_video's 'catch as
+    many highlights as possible' use case unreachable.
+    """
+    settings_obj = ExportSettingsFactory(num_highlights=30, output_duration_seconds=3600)
+    settings_obj.full_clean()
+    assert settings_obj.num_highlights == 30
+    assert settings_obj.output_duration_seconds == 3600
 
 
 @pytest.mark.parametrize(

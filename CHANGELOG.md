@@ -43,10 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `/api/v1/videos/{id}/renders/` + `/api/v1/render-jobs/{id}/`.
   `RenderJob.settings_snapshot` freezes the rendering-relevant
   `ExportSettings` fields at creation time so a completed render can't
-  silently drift if settings change afterward. B-roll and background
-  music remain deferred to phase 4; transitions/karaoke captions/subtitle
-  translation ship as disclosed simplifications — see
-  [docs/roadmap.md](docs/roadmap.md).
+  silently drift if settings change afterward. Real transitions, B-roll,
+  and background music all shipped in later passes below;
+  karaoke captions/subtitle translation remain disclosed simplifications
+  — see [docs/roadmap.md](docs/roadmap.md).
 - `apps.common.task_utils.task_failure_guard` — the never-stuck-silently
   Celery failure-handling mechanism (see Fixed, below) generalized out of
   `apps.videos.task_utils.pipeline_task_guard` so `apps.renders` gets the
@@ -65,6 +65,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     altered.
   - Caption box visual polish: larger fonts, heavier outline, more
     bottom margin for the platform-UI safe area.
+- **Real video editing pass** (the largest pass yet — see
+  [docs/roadmap.md](docs/roadmap.md) for full detail):
+  - `ExportSettings.export_mode`: `"highlight_reel"` (default, unchanged
+    behavior) or the new `"full_video"` — keeps the entire source video,
+    in order, with the same captions/B-roll/logo/music polish composed
+    in a single ffmpeg pass (`domain/rendering/renderer.py::_render_full_video`,
+    `ffmpeg_commands.py::build_full_video_render_command`). No clip
+    selection/extraction/concatenation in this mode.
+  - True crossfade transitions (`ffmpeg_commands.py::
+    build_crossfade_concat_command`, real `xfade`/`acrossfade`) replace
+    the old per-clip fade-to-black for highlight-reel renders. Falls back
+    to a plain hard-cut concat for a single surviving clip or
+    `transition_style="none"`.
+  - Real B-roll: a new `domain.stock_media` capability (Pexels, mirroring
+    `domain.ai`'s provider/registry pattern) resolves up to 5
+    LLM-suggested `broll_suggestions` per analysis into
+    `apps.highlights.models.BrollAsset` rows, composited with a Ken Burns
+    pan/zoom (`domain/rendering/broll.py`) in both render modes.
+    `ExportSettings.BrollType.STOCK_FOOTAGE` is now live (`AI_GENERATED`/
+    `MIXED` remain inert).
+  - `ExportSettings.logo_image`: an optional watermark composited last in
+    the filter chain (after captions/B-roll) at fixed opacity/corner, in
+    both render modes.
+  - `num_highlights` max raised 10 → 30; `output_duration_seconds`'
+    240s/4-minute cap removed — a longer highlight reel is reachable
+    independent of `export_mode="full_video"`.
 
 ### Fixed
 

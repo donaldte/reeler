@@ -6,13 +6,16 @@
 |---|---|---|---|---|
 | Speech-to-text | `domain.transcription.base.SpeechToTextProvider` | `faster_whisper` | — | phase 1 |
 | Summarization / highlight extraction | `domain.ai.base.LLMProvider` | `ollama` | `openrouter` | phase 1 |
+| Stock media search (B-roll) | `domain.stock_media.base.StockMediaProvider` | `pexels` | — | roadmap: "Real video editing pass" |
 | Image generation | `domain.ai.base.ImageGenProvider` | — | — | interface only, no implementation (roadmap) |
 
-Provider *selection* is env-driven and resolved by `domain/ai/registry.py`:
+Provider *selection* is env-driven and resolved by `domain/ai/registry.py`
+(`domain/stock_media/registry.py` for stock media — identical shape):
 
 ```bash
 AI_STT_PROVIDER=faster_whisper
 AI_LLM_PROVIDER=ollama       # or: openrouter
+STOCK_MEDIA_PROVIDER=pexels
 ```
 
 `apps.ai_providers.AIProviderConfig` is an admin-visible catalog of known
@@ -49,14 +52,19 @@ Ollama and OpenRouter parse identically:
    boundaries, and video duration into a single prompt instructing the
    model to return one JSON object (summary, suggested title/description/
    hashtags, ranked highlights with rationale, plus a suggested `emoji`
-   and `cut`/`fade` `transition` per highlight). The schema example shown
-   to the model contains **two** highlight objects, not one — a
+   and `cut`/`fade` `transition` per highlight, plus up to
+   `MAX_BROLL_SUGGESTIONS` (5, fixed, not user-configurable)
+   `broll_suggestions` — short visual search queries for B-roll moments,
+   resolved against `domain.stock_media` after analysis completes; see
+   `apps/highlights/tasks.py::_fetch_broll_assets`). The schema example
+   shown to the model contains **two** highlight objects, not one — a
    single-item example array turned out to be a plausible reason smaller
    local models under-delivered on `num_highlights` (observed in
    production: 3 requested, 1 returned), likely pattern-matching the
    example's length rather than treating it as a repeatable schema. The
    instruction text is also unhedged ("Identify EXACTLY N", not "up to
-   N").
+   N") — `broll_suggestions`' count deliberately stays a soft "up to N"
+   ask, since B-roll coverage is meant to be sparse, not exhaustive.
 2. `parse_analysis_response()` — extracts the first `{...}` block from the
    raw completion (tolerates markdown fences / stray commentary) and
    validates it against `AnalysisSchema` (Pydantic).
@@ -102,6 +110,16 @@ server):
 
 **New STT provider**: same shape, implementing
 `SpeechToTextProvider.transcribe()`, registered in `STT_PROVIDERS`.
+
+**New stock-media provider** (e.g. Pixabay, Openverse): implement
+`domain.stock_media.base.StockMediaProvider.search_media()` in
+`domain/stock_media/providers/your_provider.py` — reuse
+`domain.ai.providers.http_utils.classify_http_status_error` unchanged for
+the transient/permanent error split (see `pexels_provider.py`), register
+it in `domain/stock_media/registry.py::STOCK_MEDIA_PROVIDERS`, and add
+its config keys to `.env.example` + `STOCK_MEDIA_PROVIDER_KWARGS` in
+`config/settings/base.py`. Tests mirror
+`domain/tests/test_stock_media_pexels_provider.py`.
 
 **Image generation** (Stable Diffusion/Flux, etc.): the `ImageGenProvider`
 ABC already exists in `domain/ai/base.py` — implementing it, wiring a
@@ -153,6 +171,14 @@ backend appears, promoting it to a registry-based capability (mirroring
 
   A 404 (model never pulled), on the other hand, now fails immediately
   rather than retrying — see `domain/ai/providers/http_utils.py`.
+- **B-roll suggestions add to the same generation-time budget**: they're
+  part of the same JSON response as highlights (no second LLM call), so
+  every suggestion is a few more output tokens the model has to generate
+  at the same ~3-4 tokens/sec measured above. `MAX_BROLL_SUGGESTIONS = 5`
+  in `domain/ai/prompts/highlight_extraction.py` is deliberately small
+  and not user-configurable, for the same reason `DEFAULT_NUM_HIGHLIGHTS`
+  is small — raise it only with real measured timing data in hand from
+  your own hardware, not by guessing.
 - **Word-level timestamps are off** (`FasterWhisperProvider`'s
   `word_timestamps=False`) — segment-level timestamps are enough for
   scene-aligned highlight extraction, but it's the reason
