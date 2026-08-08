@@ -3,6 +3,8 @@ import json
 import pytest
 
 from domain.ai.prompts.highlight_extraction import (
+    MAX_TRANSCRIPT_CHARS_IN_PROMPT,
+    build_prompt,
     generate_analysis_with_repair,
     parse_analysis_response,
     schema_to_dto,
@@ -111,3 +113,57 @@ def test_schema_to_dto_maps_all_fields():
     assert dto.model == "qwen2.5:3b"
     assert dto.highlights[0].rationale == "Great hook."
     assert dto.raw_response == {"raw_text": "{}"}
+
+
+def _long_transcript(num_segments: int) -> TranscriptionResult:
+    """Simulates a long source video: many short segments, each with its
+    own timestamp prefix — exactly the shape that blew up the prompt size
+    in production (see docs/ai_pipeline.md#operational-notes).
+    """
+    segments = [
+        TranscriptSegmentDTO(
+            index=i, start=float(i * 3), end=float(i * 3 + 2.5), text=f"This is segment number {i}."
+        )
+        for i in range(num_segments)
+    ]
+    return TranscriptionResult(
+        language="en",
+        language_confidence=0.9,
+        full_text=" ".join(s.text for s in segments),
+        segments=segments,
+        provider="faster_whisper",
+        model="small",
+    )
+
+
+def test_build_prompt_includes_full_transcript_when_under_budget():
+    prompt = build_prompt(transcript=_transcript(), scenes=_scenes(), video_duration=10.0)
+    assert "Hello world." in prompt
+    assert "downsampled" not in prompt
+
+
+def test_build_prompt_downsamples_long_transcript_and_stays_bounded():
+    # Each segment line is ~35 chars; enough segments to blow past the budget.
+    long_transcript = _long_transcript(num_segments=1000)
+    raw_full_length = sum(
+        len(f"[{s.start:.1f}-{s.end:.1f}] {s.text}\n") for s in long_transcript.segments
+    )
+    assert raw_full_length > MAX_TRANSCRIPT_CHARS_IN_PROMPT  # sanity check on the fixture
+
+    prompt = build_prompt(transcript=long_transcript, scenes=_scenes(), video_duration=3000.0)
+
+    assert "downsampled for length" in prompt
+    # The transcript portion specifically must stay near the budget, not
+    # the whole prompt (which also has instructions/schema overhead).
+    transcript_section = prompt.split("Timestamped transcript:\n")[1].split(
+        "\n\nDetected scene boundaries"
+    )[0]
+    assert len(transcript_section) < MAX_TRANSCRIPT_CHARS_IN_PROMPT * 1.5
+
+
+def test_build_prompt_downsampling_preserves_start_and_end_coverage():
+    long_transcript = _long_transcript(num_segments=1000)
+    prompt = build_prompt(transcript=long_transcript, scenes=_scenes(), video_duration=3000.0)
+
+    assert "segment number 0." in prompt  # first segment kept
+    assert "segment number 999." in prompt  # last segment kept too, not just the head

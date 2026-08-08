@@ -17,6 +17,16 @@ ChatMessages = list[dict[str, str]]
 
 DEFAULT_NUM_HIGHLIGHTS = 5
 
+# Bounds how much transcript text goes into the prompt, independent of
+# source video length. Confirmed in practice: an unbounded prompt for a
+# several-minute video pushes CPU-only local inference (the local-first
+# default) well past reasonable timeouts — prefill time scales with prompt
+# size, and this project has no control over how long a user's source
+# video is. ~8000 chars is roughly 2000-2300 tokens for typical prose,
+# comfortably inside a few minutes of prefill on modest CPU hardware. See
+# docs/ai_pipeline.md#operational-notes.
+MAX_TRANSCRIPT_CHARS_IN_PROMPT = 8000
+
 SYSTEM_PROMPT = (
     "You are a professional short-form video editor. Given a transcript and scene "
     "boundaries for a longer video, identify the most compelling, self-contained "
@@ -49,6 +59,32 @@ class AnalysisSchema(BaseModel):
     highlights: list[HighlightSchema]
 
 
+def _transcript_lines_for_prompt(transcript: TranscriptionResult) -> tuple[str, bool]:
+    """Renders each segment as `[start-end] text`, one per line, bounded by
+    MAX_TRANSCRIPT_CHARS_IN_PROMPT.
+
+    When the full transcript would exceed the budget, evenly downsamples
+    segments across the *whole* video (keeping the first and last) rather
+    than truncating the tail — a compelling highlight is just as likely
+    near the end of a long video as the start, so losing temporal coverage
+    would bias highlight extraction toward the beginning.
+
+    Returns (rendered_text, was_downsampled) — callers use the flag to
+    tell the model its view of the transcript is incomplete.
+    """
+    all_lines = [f"[{seg.start:.1f}-{seg.end:.1f}] {seg.text}" for seg in transcript.segments]
+    full_text = "\n".join(all_lines)
+    if len(full_text) <= MAX_TRANSCRIPT_CHARS_IN_PROMPT or len(all_lines) <= 1:
+        return full_text, False
+
+    avg_line_len = len(full_text) / len(all_lines)
+    target_count = max(1, int(MAX_TRANSCRIPT_CHARS_IN_PROMPT / max(avg_line_len, 1)))
+    step = max(1, len(all_lines) / target_count)
+    sampled_indices = sorted({int(i * step) for i in range(target_count)} | {0, len(all_lines) - 1})
+    sampled_lines = [all_lines[i] for i in sampled_indices if i < len(all_lines)]
+    return "\n".join(sampled_lines), True
+
+
 def build_prompt(
     *,
     transcript: TranscriptionResult,
@@ -56,8 +92,12 @@ def build_prompt(
     video_duration: float,
     num_highlights: int = DEFAULT_NUM_HIGHLIGHTS,
 ) -> str:
-    transcript_lines = "\n".join(
-        f"[{seg.start:.1f}-{seg.end:.1f}] {seg.text}" for seg in transcript.segments
+    transcript_lines, was_downsampled = _transcript_lines_for_prompt(transcript)
+    downsample_note = (
+        "\n\n(Note: this transcript was downsampled for length — some segments were "
+        "omitted, but coverage spans the full video duration.)"
+        if was_downsampled
+        else ""
     )
     scene_lines = "\n".join(f"Scene {s.index}: {s.start:.1f}-{s.end:.1f}s" for s in scenes)
 
@@ -80,7 +120,7 @@ def build_prompt(
 
     return (
         f"Video duration: {video_duration:.1f} seconds.\n\n"
-        f"Timestamped transcript:\n{transcript_lines}\n\n"
+        f"Timestamped transcript:\n{transcript_lines}{downsample_note}\n\n"
         f"Detected scene boundaries:\n{scene_lines}\n\n"
         f"Identify up to {num_highlights} highlight-worthy moments, ranked by how "
         f"compelling they are for a short-form video, each between roughly 5 and 60 "
