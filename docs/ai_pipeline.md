@@ -107,14 +107,28 @@ backend appears, promoting it to a registry-based capability (mirroring
   model isn't pulled automatically on container start, to avoid a surprise
   multi-gigabyte download on first boot.
 - **Ollama timeouts on CPU-only hardware**: `OLLAMA_TIMEOUT` defaults to
-  300s. The first request after the container starts also pays for
-  loading the model's weights into RAM (Ollama keeps it loaded afterward,
-  so subsequent requests are faster), and a several-minute video produces
-  a large transcript to prefill — both add up on CPU-only inference. If
-  `docker compose logs worker` shows `Ollama request timed out` on the
-  analysis step, raise `OLLAMA_TIMEOUT` further in `.env` (no rebuild
-  needed, just `docker compose up -d web worker`), or switch to a smaller
-  model (`OLLAMA_MODEL=qwen2.5:1.5b` or similar) if your hardware is
-  consistently too slow for the 3B default. A 404 on the other hand (model
-  never pulled) now fails immediately rather than retrying — see
-  `domain/ai/providers/http_utils.py`.
+  600s. Measured directly against `qwen2.5:3b` on modest CPU-only hardware
+  (a laptop, no GPU): a 1638-token prompt took 85s to *prefill* (~19
+  tokens/sec) but generation ran at only ~3-4 tokens/sec — a 17-token reply
+  took 5s on its own. The takeaway: **generation speed, not prompt size, is
+  usually the dominant cost.** Our analysis response (title, description,
+  hashtags, several highlights with rationale) is a few hundred output
+  tokens, which at ~3-4 tokens/sec alone can take 2+ minutes — on top of
+  prefill, on top of a multi-second cold model load if it had gone idle.
+  `DEFAULT_NUM_HIGHLIGHTS` (3) and `MAX_TRANSCRIPT_CHARS_IN_PROMPT` (6000,
+  in `domain/ai/prompts/highlight_extraction.py`) are both tuned with this
+  in mind — fewer requested highlights means less output to generate. If
+  `docker compose logs worker` still shows `Ollama request timed out` on
+  the analysis step:
+  1. Raise `OLLAMA_TIMEOUT` further in `.env` (no rebuild needed, just
+     `docker compose up -d web worker`).
+  2. Switch to a smaller/faster model — `OLLAMA_MODEL=qwen2.5:1.5b` or
+     `qwen2.5:0.5b` trade some quality for meaningfully faster CPU
+     inference, especially on generation-bound requests like this one.
+  3. To directly measure your own hardware's prefill/generation speed
+     (rather than guessing), POST a large prompt straight to Ollama and
+     read `prompt_eval_count`/`prompt_eval_duration`/`eval_count`/
+     `eval_duration` from its JSON response.
+
+  A 404 (model never pulled), on the other hand, now fails immediately
+  rather than retrying — see `domain/ai/providers/http_utils.py`.

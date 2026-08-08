@@ -15,17 +15,24 @@ from domain.transcription.base import TranscriptionResult
 
 ChatMessages = list[dict[str, str]]
 
-DEFAULT_NUM_HIGHLIGHTS = 5
+# Measured on real CPU-only hardware (see docs/ai_pipeline.md#operational-notes):
+# a 1638-token prompt took 85s to prefill but only generated 17 output
+# tokens in 5s -- generation ran at ~3.4 tokens/sec, far slower than
+# prefill's ~19 tokens/sec. Our real analysis response (title, description,
+# hashtags, several highlights with rationale) is a few hundred output
+# tokens, not 17 -- generation time, not prompt size, is the dominant cost.
+# Fewer requested highlights means less output to generate.
+DEFAULT_NUM_HIGHLIGHTS = 3
 
 # Bounds how much transcript text goes into the prompt, independent of
 # source video length. Confirmed in practice: an unbounded prompt for a
 # several-minute video pushes CPU-only local inference (the local-first
 # default) well past reasonable timeouts — prefill time scales with prompt
 # size, and this project has no control over how long a user's source
-# video is. ~8000 chars is roughly 2000-2300 tokens for typical prose,
-# comfortably inside a few minutes of prefill on modest CPU hardware. See
-# docs/ai_pipeline.md#operational-notes.
-MAX_TRANSCRIPT_CHARS_IN_PROMPT = 8000
+# video is. ~6000 chars is roughly 1500-1700 tokens for typical prose,
+# leaving more of the timeout budget for the (slower, per-token) generation
+# phase above. See docs/ai_pipeline.md#operational-notes.
+MAX_TRANSCRIPT_CHARS_IN_PROMPT = 6000
 
 SYSTEM_PROMPT = (
     "You are a professional short-form video editor. Given a transcript and scene "
