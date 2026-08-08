@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from domain.ai.base import AnalysisDTO, BrollSuggestionDTO, HighlightDTO
-from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS
+from domain.ai.defaults import DEFAULT_EXPORT_MODE, DEFAULT_NUM_HIGHLIGHTS
 from domain.exceptions import ProviderResponseParseError
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult
@@ -123,7 +123,18 @@ def build_prompt(
     scenes: list[SceneDTO],
     video_duration: float,
     num_highlights: int = DEFAULT_NUM_HIGHLIGHTS,
+    export_mode: str = DEFAULT_EXPORT_MODE,
 ) -> str:
+    """`export_mode="full_video"` means the whole source video is kept, in
+    order, not cut into highlights (see
+    `apps.export_settings.models.ExportSettings.ExportMode`) — asking the
+    model for `num_highlights` moments *to extract* in that mode would be
+    contextually wrong (there's nothing to extract) and would waste
+    CPU-bound generation time on output that's never used. B-roll
+    suggestions still apply in both modes; only the highlights ask
+    changes.
+    """
+    full_video_mode = export_mode == "full_video"
     transcript_lines, was_downsampled = _transcript_lines_for_prompt(transcript)
     downsample_note = (
         "\n\n(Note: this transcript was downsampled for length — some segments were "
@@ -137,13 +148,16 @@ def build_prompt(
     # is a plausible reason smaller local models pattern-match the
     # example's *length* rather than treating it as a repeatable schema —
     # observed in practice as a model asked for 3 highlights returning
-    # only 1. See docs/ai_pipeline.md.
+    # only 1. See docs/ai_pipeline.md. In full_video mode the example
+    # mirrors what's actually being asked for: no highlights at all.
     schema_example = {
         "summary": "2-4 sentence summary of the video content.",
         "suggested_title": "Punchy title under 100 characters.",
         "suggested_description": "1-2 sentence social media description.",
         "suggested_hashtags": ["#example", "#shortform"],
-        "highlights": [
+        "highlights": []
+        if full_video_mode
+        else [
             {
                 "rank": 1,
                 "start": 12.5,
@@ -170,23 +184,40 @@ def build_prompt(
         ],
     }
 
+    if full_video_mode:
+        highlights_instruction = (
+            "This video will be exported in its entirety, unedited and uncut -- do NOT "
+            'identify any highlight moments to extract. Always return "highlights": [] '
+            "(an empty array). "
+        )
+        shape_note = "Respond with JSON matching exactly this shape:\n"
+    else:
+        highlights_instruction = (
+            f"Identify EXACTLY {num_highlights} highlight-worthy moments, ranked by how "
+            f"compelling they are for a short-form video, each between roughly 5 and 60 "
+            f"seconds long, spread across the full video timeline rather than clustered "
+            f'together. For each highlight, also pick one relevant "emoji" capturing its '
+            f'mood or topic, and a "transition" of either "cut" (for an abrupt, punchy '
+            f'moment) or "fade" (for a softer topic change). '
+        )
+        shape_note = (
+            f"Respond with JSON matching exactly this shape (the highlights example shows "
+            f"2 to illustrate the repeating structure — your response must contain "
+            f"{num_highlights}):\n"
+        )
+
+    broll_instruction = (
+        f'Also suggest up to {MAX_BROLL_SUGGESTIONS} short B-roll moments ("broll_suggestions") -- '
+        f"non-overlapping time windows, each a few seconds long, where a stock photo "
+        f'illustrating what\'s being said would work well visually; "query" should be '
+        f"a short (2-4 word) visual search phrase, not a caption or summary. "
+    )
+
     return (
         f"Video duration: {video_duration:.1f} seconds.\n\n"
         f"Timestamped transcript:\n{transcript_lines}{downsample_note}\n\n"
         f"Detected scene boundaries:\n{scene_lines}\n\n"
-        f"Identify EXACTLY {num_highlights} highlight-worthy moments, ranked by how "
-        f"compelling they are for a short-form video, each between roughly 5 and 60 "
-        f"seconds long, spread across the full video timeline rather than clustered "
-        f'together. For each highlight, also pick one relevant "emoji" capturing its '
-        f'mood or topic, and a "transition" of either "cut" (for an abrupt, punchy '
-        f'moment) or "fade" (for a softer topic change). Also suggest up to '
-        f'{MAX_BROLL_SUGGESTIONS} short B-roll moments ("broll_suggestions") -- '
-        f"non-overlapping time windows, each a few seconds long, where a stock photo "
-        f'illustrating what\'s being said would work well visually; "query" should be '
-        f"a short (2-4 word) visual search phrase, not a caption or summary. Respond "
-        f"with JSON matching exactly this shape (the highlights example shows 2 to "
-        f"illustrate the repeating structure — your response must contain "
-        f"{num_highlights}):\n"
+        f"{highlights_instruction}{broll_instruction}{shape_note}"
         f"{json.dumps(schema_example, indent=2)}"
     )
 
@@ -227,6 +258,7 @@ def generate_analysis_with_repair(
     scenes: list[SceneDTO],
     video_duration: float,
     num_highlights: int = DEFAULT_NUM_HIGHLIGHTS,
+    export_mode: str = DEFAULT_EXPORT_MODE,
 ) -> tuple[AnalysisSchema, str]:
     """Shared provider-agnostic flow: build the prompt, send it via the
     caller-supplied `send_chat` transport, parse/validate the response, and
@@ -238,6 +270,15 @@ def generate_analysis_with_repair(
     to Ollama's or OpenRouter's chat endpoint) so this function stays free
     of any HTTP/provider-specific concerns.
 
+    `export_mode="full_video"` targets **zero** highlights, not
+    `num_highlights` — `build_prompt` doesn't even ask for highlights in
+    that mode (the whole video is kept, nothing is extracted), so
+    checking the response against `num_highlights` here would spuriously
+    trigger the count-repair path on every single full-video-mode
+    analysis. Any highlights a model returns anyway despite the
+    instruction are harmless (the full-video renderer never reads them)
+    and are not repaired away.
+
     The repair round never *loses* a usable result: if the first response
     parsed but was short, and the repair either fails to parse or comes
     back even shorter, the original short-but-valid result is kept rather
@@ -248,11 +289,13 @@ def generate_analysis_with_repair(
     Returns the validated schema plus the raw text that produced it (the
     caller persists the raw text as an audit trail).
     """
+    target_highlights = 0 if export_mode == "full_video" else num_highlights
     user_prompt = build_prompt(
         transcript=transcript,
         scenes=scenes,
         video_duration=video_duration,
         num_highlights=num_highlights,
+        export_mode=export_mode,
     )
     messages: ChatMessages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -265,13 +308,13 @@ def generate_analysis_with_repair(
     except ProviderResponseParseError:
         schema = None
 
-    if schema is not None and len(schema.highlights) >= num_highlights:
+    if schema is not None and len(schema.highlights) >= target_highlights:
         return schema, raw
 
     repair_message = (
         REPAIR_PROMPT
         if schema is None
-        else _count_repair_prompt(len(schema.highlights), num_highlights)
+        else _count_repair_prompt(len(schema.highlights), target_highlights)
     )
     messages.append({"role": "assistant", "content": raw})
     messages.append({"role": "user", "content": repair_message})

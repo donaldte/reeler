@@ -91,6 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `num_highlights` max raised 10 → 30; `output_duration_seconds`'
     240s/4-minute cap removed — a longer highlight reel is reachable
     independent of `export_mode="full_video"`.
+  - The video detail page and `/api/v1/videos/{id}/analysis/` now list
+    every chosen B-roll asset (thumbnail, search query, timestamp
+    window) — this data existed in the database from the start of this
+    pass but was never surfaced to the user.
 
 ### Fixed
 
@@ -125,5 +129,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   — added in phase 2 to `ExportSettings` but never wired into
   `RenderJob.settings_snapshot`, so the background-music feature could
   never have activated regardless of what a user picked.
+- `export_mode="full_video"` still asked the LLM for `num_highlights`
+  highlight moments *to extract*, even though nothing is extracted in
+  that mode — wasted CPU-bound generation time and set up the
+  count-repair logic to spuriously retry forever trying to force
+  highlights the renderer would just discard. Now asks for zero
+  highlights in that mode; B-roll suggestions are unaffected. This also
+  surfaced (and fixes) a second bug: `apps/renders/services.py::
+  create_render_job` and `apps/renders/tasks.py::render_video_task` both
+  unconditionally required at least one `Highlight` to exist, which
+  would have made every `full_video`-mode video permanently unrenderable.
 
 [Unreleased]: https://github.com/donaldte/reeler/compare/main...HEAD

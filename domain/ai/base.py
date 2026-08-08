@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS, DEFAULT_TEMPERATURE
+from domain.ai.defaults import DEFAULT_EXPORT_MODE, DEFAULT_NUM_HIGHLIGHTS, DEFAULT_TEMPERATURE
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult
 
@@ -44,11 +44,14 @@ class LLMProvider(ABC):
     implement. Implementations live in `domain/ai/providers/` and are
     registered in `domain/ai/registry.py`'s LLM_PROVIDERS mapping.
 
-    `num_highlights` and `temperature` are user-configurable via
-    `apps.export_settings.models.ExportSettings` — new providers must
-    accept both (ignoring `temperature` if the backend has no equivalent
-    is fine; ignoring `num_highlights` is not, since it changes what the
-    prompt itself asks for). See docs/ai_pipeline.md.
+    `num_highlights`, `temperature`, and `export_mode` are all
+    user-configurable via `apps.export_settings.models.ExportSettings` —
+    new providers must accept all three (ignoring `temperature` if the
+    backend has no equivalent is fine; ignoring `num_highlights`/
+    `export_mode` is not, since together they change what the prompt
+    itself asks for -- see docs/ai_pipeline.md). `export_mode="full_video"`
+    means the whole source video is kept, not cut into highlights, so
+    `num_highlights` is not requested at all in that mode.
     """
 
     name: ClassVar[str]
@@ -62,6 +65,7 @@ class LLMProvider(ABC):
         video_duration: float,
         num_highlights: int = DEFAULT_NUM_HIGHLIGHTS,
         temperature: float = DEFAULT_TEMPERATURE,
+        export_mode: str = DEFAULT_EXPORT_MODE,
     ) -> AnalysisDTO:
         raise NotImplementedError
 

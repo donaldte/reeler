@@ -109,6 +109,20 @@ def test_generate_analysis_task_uses_video_export_settings():
     call_kwargs = fake_provider.generate_analysis.call_args.kwargs
     assert call_kwargs["num_highlights"] == 7
     assert call_kwargs["temperature"] == 0.9  # CREATIVE
+    assert call_kwargs["export_mode"] == ExportSettings.ExportMode.HIGHLIGHT_REEL  # default
+
+
+def test_generate_analysis_task_passes_full_video_export_mode():
+    video = _video_with_transcript_and_scenes()
+    ExportSettingsFactory(video=video, export_mode=ExportSettings.ExportMode.FULL_VIDEO)
+    fake_provider = MagicMock()
+    fake_provider.generate_analysis.return_value = FAKE_ANALYSIS
+
+    with patch("apps.highlights.tasks.get_llm_provider", return_value=fake_provider):
+        generate_analysis_task(str(video.id))
+
+    call_kwargs = fake_provider.generate_analysis.call_args.kwargs
+    assert call_kwargs["export_mode"] == "full_video"
 
 
 def test_generate_analysis_task_uses_default_settings_when_none_saved():

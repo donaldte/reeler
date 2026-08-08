@@ -44,7 +44,12 @@ def render_video_task(self: Task, render_job_id: str) -> str:
         if not hasattr(video, "analysis_result"):
             raise PermanentPipelineError("Video has no analysis result to render from.")
         highlights = list(video.analysis_result.highlights.all())
-        if not highlights:
+        # export_mode="full_video" never reads highlights (see
+        # apps/renders/services.py::create_render_job's matching check
+        # and domain/ai/prompts/highlight_extraction.py) -- only the
+        # highlight-reel path requires at least one.
+        export_mode = render_job.settings_snapshot.get("export_mode", "highlight_reel")
+        if export_mode != "full_video" and not highlights:
             raise PermanentPipelineError("No highlights available to render.")
         broll_assets = list(video.analysis_result.broll_assets.all())
         transcript_segments = (

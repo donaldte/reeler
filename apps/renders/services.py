@@ -3,6 +3,7 @@ created, mirroring apps.videos.services.create_video_and_launch_pipeline
 and apps.export_settings.services.
 """
 
+from apps.export_settings.models import ExportSettings
 from apps.export_settings.services import get_or_create_export_settings
 from apps.renders.models import RenderJob
 from apps.videos.models import UploadedVideo
@@ -35,10 +36,21 @@ def create_render_job(video: UploadedVideo) -> RenderJob:
     """
     if video.status != UploadedVideo.Status.COMPLETED:
         raise ValueError("Video analysis must complete before rendering.")
-    if not hasattr(video, "analysis_result") or not video.analysis_result.highlights.exists():
+    if not hasattr(video, "analysis_result"):
         raise ValueError("No highlights available to render — analysis produced none.")
 
     export_settings = get_or_create_export_settings(video)
+    # export_mode="full_video" never reads Highlight rows at all (the
+    # whole source video is kept, nothing is cut) -- requiring them here
+    # would make full-video-mode videos permanently unrenderable, since
+    # generate_analysis_task deliberately asks for zero highlights in
+    # that mode. See domain/ai/prompts/highlight_extraction.py.
+    if (
+        export_settings.export_mode != ExportSettings.ExportMode.FULL_VIDEO
+        and not video.analysis_result.highlights.exists()
+    ):
+        raise ValueError("No highlights available to render — analysis produced none.")
+
     snapshot = {field: getattr(export_settings, field) for field in SNAPSHOT_FIELDS}
     # logo_image is a FieldFile, not JSON-serializable -- can't go through
     # the plain getattr loop above. A point-in-time file *path* reference,

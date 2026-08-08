@@ -23,3 +23,10 @@ DEFAULT_NUM_HIGHLIGHTS = 3
 # pipeline). apps.export_settings.models.ExportSettings.temperature maps
 # its user-facing "creativity level" to a value in this same range.
 DEFAULT_TEMPERATURE = 0.5
+
+# Mirrors apps.export_settings.models.ExportSettings.ExportMode.HIGHLIGHT_REEL
+# as a plain string (domain/ can't import apps.export_settings -- Django
+# stays out of this layer). "full_video" is the only other valid value;
+# see build_prompt/generate_analysis_with_repair in
+# domain/ai/prompts/highlight_extraction.py for what actually changes.
+DEFAULT_EXPORT_MODE = "highlight_reel"

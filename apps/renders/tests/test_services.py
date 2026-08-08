@@ -53,6 +53,26 @@ def test_create_render_job_rejects_analysis_with_no_highlights():
         create_render_job(video)
 
 
+def test_create_render_job_full_video_mode_does_not_require_highlights():
+    """export_mode="full_video" never reads Highlight rows (the whole
+    source video is kept, nothing is cut) -- generate_analysis_task
+    deliberately asks for zero highlights in that mode, so requiring them
+    here would make full-video-mode videos permanently unrenderable.
+    """
+    video = UploadedVideoFactory(status=UploadedVideo.Status.COMPLETED)
+    AnalysisResult.objects.create(
+        video=video, summary="s", suggested_title="t", suggested_description="d",
+        suggested_hashtags=[], llm_provider="ollama", llm_model="qwen2.5:3b", raw_response={},
+    )  # fmt: skip
+    ExportSettingsFactory(video=video, export_mode=ExportSettings.ExportMode.FULL_VIDEO)
+
+    with patch("apps.renders.tasks.render_video_task.delay") as mock_delay:
+        render_job = create_render_job(video)
+
+    assert render_job.settings_snapshot["export_mode"] == "full_video"
+    mock_delay.assert_called_once_with(str(render_job.id))
+
+
 def test_create_render_job_snapshots_current_export_settings():
     video = _completed_video_with_highlights()
     ExportSettingsFactory(video=video, aspect_ratio="1:1", num_highlights=7, music_style="chill")

@@ -38,5 +38,34 @@
       {% endfor %}
     </ol>
   </div>
+
+  {% if video.analysis_result.broll_assets.exists %}
+    <div>
+      <h3 class="font-medium mb-2">B-roll</h3>
+      <p class="text-xs text-slate-500 mb-2">
+        Stock images picked from the transcript, shown with a Ken Burns pan/zoom
+        when this window overlaps a rendered clip.
+      </p>
+      <ol class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {% for asset in video.analysis_result.broll_assets.all %}
+          <li class="rounded-md border border-slate-800 overflow-hidden text-sm">
+            {% if asset.image %}
+              <img src="{{ asset.image.url }}" alt="{{ asset.query }}" class="w-full aspect-video object-cover">
+            {% else %}
+              <div class="w-full aspect-video bg-slate-900 flex items-center justify-center text-xs text-slate-600">
+                no image found
+              </div>
+            {% endif %}
+            <div class="p-2">
+              <p class="truncate" title="{{ asset.query }}">{{ asset.query }}</p>
+              <p class="text-slate-500 tabular-nums text-xs">
+                {{ asset.start_time|seconds_to_timestamp }} – {{ asset.end_time|seconds_to_timestamp }}
+              </p>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+  {% endif %}
 </section>
 {% endif %}

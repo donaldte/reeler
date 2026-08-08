@@ -155,17 +155,42 @@ motion, and no way to export more than a short highlight reel.
 - **Logo/watermark**: `ExportSettings.logo_image`, composited last in the
   filter chain (after captions/B-roll — brand always wins the stacking
   order) at fixed opacity in a fixed corner, in both render modes.
+- **Visible B-roll log**: the video detail page and the
+  `/api/v1/videos/{id}/analysis/` response both now list every
+  `BrollAsset` (thumbnail, search query, timestamp window) — previously
+  this data existed only in the database, invisible to the user.
 - Full pass detail, including the exact filter-graph composition and the
   worked crossfade-offset math, lives in code comments/docstrings across
   `domain/rendering/{ffmpeg_commands,broll,renderer}.py` — this entry is
   the summary, not the source of truth.
+
+**Fixed shortly after landing**: `build_prompt` (and the whole analysis
+call) unconditionally asked the LLM for `num_highlights` highlight
+moments *to extract*, even in `export_mode="full_video"` — where nothing
+is extracted, so the ask was contextually wrong and wasted CPU-bound
+generation time. `export_mode="full_video"` now asks for zero highlights
+(B-roll suggestions are still requested in both modes), and
+`generate_analysis_with_repair`'s count-enforcement targets that zero
+rather than `num_highlights`, so it never spuriously retries trying to
+force highlights the full-video renderer would just discard. This also
+surfaced a second bug: both `apps/renders/services.py::create_render_job`
+and `apps/renders/tasks.py::render_video_task` unconditionally required
+at least one `Highlight` to exist before rendering — which would have
+made every `full_video`-mode video permanently unrenderable the moment
+the prompt stopped generating highlights for it. Both gates are now
+`export_mode`-aware.
 
 **Explicitly out of scope for this pass** (deliberate, not forgotten):
 Pixabay as a second stock-media provider (same pattern, trivial
 follow-up); AI-generated B-roll images (needs a hosted image-gen API —
 no GPU on the reference hardware makes local generation impractical, see
 Phase 4); word-by-word karaoke captions (needs word-level Whisper
-timestamps, unrelated to any of the above).
+timestamps, unrelated to any of the above); **real audio analysis**
+(tone/emotion/music/silence detection influencing B-roll timing, not
+just the transcript text) — no audio-analysis capability exists in this
+project beyond transcription today; this is comparable in size to Phase
+5's "Emotion/object/face detection" and needs its own properly-scoped
+session, not a bolt-on here.
 
 ## Phase 4 — media sourcing
 
@@ -187,7 +212,11 @@ timestamps, unrelated to any of the above).
 - Thumbnail generation (extract/rank candidate frames, or generate one).
 - Script generation (a distinct capability from summarization — a
   narration script for voice-over).
-- Emotion/object/face detection as inputs to highlight ranking.
+- Emotion/object/face detection as inputs to highlight ranking. Also
+  covers real audio-signal analysis (tone, music cues, silence/emphasis
+  detection) as an input to B-roll timing, not just transcript text —
+  explicitly deferred here rather than bolted onto the "Real video
+  editing pass" above; see that entry's "Explicitly out of scope" note.
 - Entry-point-based provider auto-discovery (`importlib.metadata.entry_points`)
   so third-party packages can register providers without editing
   `domain/ai/registry.py` directly.

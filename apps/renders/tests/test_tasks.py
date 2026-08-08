@@ -6,7 +6,7 @@ import pytest
 from apps.highlights.models import AnalysisResult
 from apps.renders.models import RenderJob
 from apps.renders.tasks import render_video_task
-from apps.renders.tests.factories import RenderJobFactory
+from apps.renders.tests.factories import DEFAULT_SNAPSHOT, RenderJobFactory
 from apps.transcripts.models import Transcript, TranscriptSegment
 from apps.videos.models import UploadedVideo
 from apps.videos.tests.factories import UploadedVideoFactory
@@ -112,6 +112,30 @@ def test_render_video_task_fails_when_no_highlights():
     render_job.refresh_from_db()
     assert render_job.status == RenderJob.Status.FAILED
     assert "No highlights" in render_job.error_message
+
+
+def test_render_video_task_full_video_mode_does_not_require_highlights(tmp_path):
+    video = UploadedVideoFactory(
+        status=UploadedVideo.Status.COMPLETED, width=1920, height=1080, has_audio=True
+    )
+    AnalysisResult.objects.create(
+        video=video, summary="s", suggested_title="t", suggested_description="d",
+        suggested_hashtags=[], llm_provider="ollama", llm_model="qwen2.5:3b", raw_response={},
+    )  # fmt: skip
+    render_job = RenderJobFactory(
+        video=video, settings_snapshot={**DEFAULT_SNAPSHOT, "export_mode": "full_video"}
+    )
+
+    fake_output = tmp_path / "output.mp4"
+    fake_output.write_bytes(b"x")
+
+    with patch("apps.renders.tasks.render_video", return_value=fake_output) as mock_render:
+        render_video_task(str(render_job.id))
+
+    mock_render.assert_called_once()
+    assert mock_render.call_args.kwargs["highlights"] == []
+    render_job.refresh_from_db()
+    assert render_job.status == RenderJob.Status.COMPLETED
 
 
 def test_render_video_task_fails_when_no_analysis_result():

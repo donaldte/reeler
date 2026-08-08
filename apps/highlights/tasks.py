@@ -59,6 +59,7 @@ def generate_analysis_task(self: Task, video_id: str) -> str:
             video_duration=video.duration_seconds or 0.0,
             num_highlights=export_settings.num_highlights,
             temperature=export_settings.temperature,
+            export_mode=export_settings.export_mode,
         )
 
         with transaction.atomic():

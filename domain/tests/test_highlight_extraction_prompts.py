@@ -270,6 +270,83 @@ def test_build_prompt_demands_exact_highlight_count_with_two_example_highlights(
     assert '"transition"' in prompt
 
 
+def test_build_prompt_full_video_mode_asks_for_zero_highlights():
+    """export_mode="full_video" means the whole source video is kept, not
+    cut -- asking for num_highlights moments *to extract* would be
+    contextually wrong and would waste CPU-bound generation time.
+    """
+    prompt = build_prompt(
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+        export_mode="full_video",
+    )
+    assert "EXACTLY 3" not in prompt
+    assert "highlight-worthy moments" not in prompt
+    assert '"highlights": []' in prompt
+    example_section = prompt.split('"highlights": [', 1)[1]
+    assert example_section.split("]", 1)[0].strip() == ""  # no example highlight objects
+
+
+def test_build_prompt_full_video_mode_still_asks_for_broll():
+    prompt = build_prompt(
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+        export_mode="full_video",
+    )
+    assert "broll_suggestions" in prompt
+    assert "B-roll moments" in prompt
+
+
+def test_generate_analysis_with_repair_full_video_mode_never_triggers_count_repair():
+    """The model returning zero highlights (as instructed) must not
+    spuriously trigger the count-repair path -- target is 0, not
+    num_highlights, when export_mode="full_video".
+    """
+    calls = []
+
+    def send_chat(messages):
+        calls.append(messages)
+        return json.dumps(_payload_with_highlights(0))
+
+    schema, _raw = generate_analysis_with_repair(
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+        export_mode="full_video",
+    )
+    assert schema.highlights == []
+    assert len(calls) == 1
+
+
+def test_generate_analysis_with_repair_full_video_mode_accepts_stray_highlights():
+    """If a model ignores the "return highlights: []" instruction and
+    returns some anyway, that's harmless (the full-video renderer never
+    reads Highlight rows) -- not something to repair away.
+    """
+    calls = []
+
+    def send_chat(messages):
+        calls.append(messages)
+        return json.dumps(_payload_with_highlights(2))
+
+    schema, _raw = generate_analysis_with_repair(
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+        export_mode="full_video",
+    )
+    assert len(schema.highlights) == 2
+    assert len(calls) == 1
+
+
 def test_highlight_schema_accepts_emoji_and_transition():
     payload = _payload_with_highlights(1)
     payload["highlights"][0]["emoji"] = "🔥"

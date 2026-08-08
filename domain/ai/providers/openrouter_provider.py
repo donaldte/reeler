@@ -9,7 +9,7 @@ from typing import ClassVar
 import httpx
 
 from domain.ai.base import AnalysisDTO, LLMProvider
-from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS, DEFAULT_TEMPERATURE
+from domain.ai.defaults import DEFAULT_EXPORT_MODE, DEFAULT_NUM_HIGHLIGHTS, DEFAULT_TEMPERATURE
 from domain.ai.prompts.highlight_extraction import (
     ChatMessages,
     generate_analysis_with_repair,
@@ -46,6 +46,7 @@ class OpenRouterProvider(LLMProvider):
         video_duration: float,
         num_highlights: int = DEFAULT_NUM_HIGHLIGHTS,
         temperature: float = DEFAULT_TEMPERATURE,
+        export_mode: str = DEFAULT_EXPORT_MODE,
     ) -> AnalysisDTO:
         schema, raw = generate_analysis_with_repair(
             send_chat=lambda messages: self._send_chat(messages, temperature=temperature),
@@ -53,6 +54,7 @@ class OpenRouterProvider(LLMProvider):
             scenes=scenes,
             video_duration=video_duration,
             num_highlights=num_highlights,
+            export_mode=export_mode,
         )
         return schema_to_dto(schema, provider=self.name, model=self.model, raw_text=raw)
 

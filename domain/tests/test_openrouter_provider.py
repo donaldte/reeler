@@ -98,6 +98,25 @@ def test_generate_analysis_passes_custom_num_highlights_and_temperature():
     assert "EXACTLY 2 highlight-worthy moments" in user_prompt
 
 
+def test_generate_analysis_passes_export_mode_full_video_asks_for_zero_highlights():
+    provider = OpenRouterProvider(api_key="sk-test")
+    fake_response = MagicMock()
+    fake_response.raise_for_status.return_value = None
+    fake_response.json.return_value = {
+        "choices": [{"message": {"content": json.dumps(_payload_with_highlights(0))}}]
+    }
+
+    with patch("httpx.post", return_value=fake_response) as mock_post:
+        provider.generate_analysis(
+            transcript=_transcript(), scenes=[], video_duration=5.0, export_mode="full_video"
+        )
+
+    mock_post.assert_called_once()
+    user_prompt = mock_post.call_args.kwargs["json"]["messages"][1]["content"]
+    assert '"highlights": []' in user_prompt
+    assert "EXACTLY" not in user_prompt
+
+
 def test_generate_analysis_raises_transient_on_http_error():
     provider = OpenRouterProvider(api_key="sk-test")
     with (

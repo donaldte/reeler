@@ -4,6 +4,8 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
+from apps.highlights.models import AnalysisResult
+from apps.videos.models import UploadedVideo
 from apps.videos.tests.factories import UploadedVideoFactory, UserFactory
 
 pytestmark = pytest.mark.django_db
@@ -61,6 +63,24 @@ def test_detail_renders_for_owner(client):
     response = client.get(reverse("videos:detail", args=[video.id]))
 
     assert response.status_code == 200
+
+
+def test_detail_page_shows_broll_assets_with_query_and_timestamps(client):
+    owner = UserFactory()
+    video = UploadedVideoFactory(project__owner=owner, status=UploadedVideo.Status.COMPLETED)
+    result = AnalysisResult.objects.create(
+        video=video, summary="s", suggested_title="t", suggested_description="d",
+        suggested_hashtags=[], llm_provider="ollama", llm_model="qwen2.5:3b", raw_response={},
+    )  # fmt: skip
+    result.highlights.create(rank=1, start_time=0.0, end_time=10.0, rationale="r")
+    result.broll_assets.create(query="laptop coding closeup", start_time=2.0, end_time=5.0)
+    client.force_login(owner)
+
+    response = client.get(reverse("videos:detail", args=[video.id]))
+
+    assert response.status_code == 200
+    assert b"laptop coding closeup" in response.content
+    assert b"no image found" in response.content  # no image downloaded in this test
 
 
 def test_status_fragment_renders(client):

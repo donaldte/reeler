@@ -65,20 +65,29 @@ Ollama and OpenRouter parse identically:
    instruction text is also unhedged ("Identify EXACTLY N", not "up to
    N") — `broll_suggestions`' count deliberately stays a soft "up to N"
    ask, since B-roll coverage is meant to be sparse, not exhaustive.
+   **`export_mode="full_video"` is the one exception**: since nothing is
+   extracted in that mode (the whole source video is kept, in order),
+   `build_prompt` doesn't ask for highlights at all — the instruction
+   text and schema example both switch to `"highlights": []`.
+   `broll_suggestions` are requested identically in both modes.
 2. `parse_analysis_response()` — extracts the first `{...}` block from the
    raw completion (tolerates markdown fences / stray commentary) and
    validates it against `AnalysisSchema` (Pydantic).
 3. `generate_analysis_with_repair()` — the shared retry flow every provider
    calls: send the prompt, try to parse. One repair round happens if
    either (a) the response wasn't valid JSON, or (b) it parsed fine but
-   came back with fewer highlights than `num_highlights` — using a
+   came back with fewer highlights than the target count — using a
    count-specific repair message in the second case, a generic
-   JSON-repair message in the first. A short-but-valid first result is
-   never discarded: if the repair round fails to parse, or comes back
-   even shorter, the original result is kept rather than losing a usable
-   analysis over an imperfect count. A first response that never parsed
-   at all, with a repair that also fails to parse, is the only case that
-   raises `domain.exceptions.ProviderResponseParseError` (a
+   JSON-repair message in the first. The target count is `num_highlights`
+   normally, but **0** when `export_mode="full_video"` — checking against
+   `num_highlights` there would spuriously trigger a repair loop on every
+   single full-video-mode analysis, since none were ever requested. A
+   short-but-valid first result is never discarded: if the repair round
+   fails to parse, or comes back even shorter, the original result is
+   kept rather than losing a usable analysis over an imperfect count. A
+   first response that never parsed at all, with a repair that also
+   fails to parse, is the only case that raises
+   `domain.exceptions.ProviderResponseParseError` (a
    `PermanentPipelineError` — no further retries; see
    `apps/highlights/tasks.py`).
 
@@ -92,16 +101,17 @@ response validation.
 server):
 
 1. Create `domain/ai/providers/your_provider.py` implementing
-   `LLMProvider.generate_analysis()`, including its `num_highlights` and
-   `temperature` kwargs (both user-configurable per-video via
-   `apps.export_settings.models.ExportSettings` — see `docs/architecture.md`).
-   In the common case this is a one-line call to
+   `LLMProvider.generate_analysis()`, including its `num_highlights`,
+   `temperature`, and `export_mode` kwargs (all user-configurable
+   per-video via `apps.export_settings.models.ExportSettings` — see
+   `docs/architecture.md`). In the common case this is a one-line call to
    `domain.ai.prompts.highlight_extraction.generate_analysis_with_repair()`
    passing a `send_chat(messages) -> str` closure that does your HTTP call
    (capture `temperature` in the closure, since `send_chat` itself only
    takes `messages`) — see `ollama_provider.py` for the pattern. Ignoring
    `temperature` if your backend has no equivalent is fine; ignoring
-   `num_highlights` is not, since it changes what the prompt itself asks for.
+   `num_highlights`/`export_mode` is not, since together they change what
+   the prompt itself asks for.
 2. Register it in `domain/ai/registry.py::LLM_PROVIDERS`.
 3. Add its config keys to `.env.example` and
    `AI_LLM_PROVIDER_KWARGS` in `config/settings/base.py`.
