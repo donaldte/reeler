@@ -53,12 +53,16 @@ def test_create_render_job_rejects_analysis_with_no_highlights():
 
 def test_create_render_job_snapshots_current_export_settings():
     video = _completed_video_with_highlights()
-    ExportSettingsFactory(video=video, aspect_ratio="1:1", num_highlights=7)
+    ExportSettingsFactory(video=video, aspect_ratio="1:1", num_highlights=7, music_style="chill")
 
     with patch("apps.renders.tasks.render_video_task.delay") as mock_delay:
         render_job = create_render_job(video)
 
     assert render_job.settings_snapshot["aspect_ratio"] == "1:1"
+    # Regression: music_style was missing from SNAPSHOT_FIELDS, so the
+    # music feature could never activate regardless of what the user
+    # picked -- see domain/rendering/renderer.py.
+    assert render_job.settings_snapshot["music_style"] == "chill"
     assert "num_highlights" not in render_job.settings_snapshot  # not a rendering-relevant field
     assert render_job.export_settings is not None
     mock_delay.assert_called_once_with(str(render_job.id))

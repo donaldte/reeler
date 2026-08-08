@@ -9,6 +9,13 @@ from domain.rendering.dto import ClipSpec, CropParams, OutputDimensions
 
 FADE_DURATION_SECONDS = 0.3
 
+# Fixed pre-attenuation applied to the generated music track before mixing
+# it under dialogue — a static mix, not true ducking (no sidechain
+# analysis of speech level), but enough to keep music from competing with
+# dialogue. See build_final_encode_command's `amix` usage below for why
+# this alone isn't sufficient without also disabling amix's normalize.
+MUSIC_MIX_VOLUME = 0.25
+
 # mp4/mov: broadly compatible H.264 + AAC. webm: VP9 + Opus (H.264 isn't a
 # valid webm codec). CRF-based rather than explicit bitrates — output
 # resolution already differentiates the video_quality tiers, so a
@@ -108,26 +115,72 @@ def build_concat_command(concat_list_path: Path, output_path: Path) -> list[str]
     ]  # fmt: skip
 
 
+def _escape_ass_filter_path(path: Path) -> str:
+    # libass filter argument escaping: backslashes and colons are special
+    # inside ffmpeg filter option strings.
+    return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
 def build_final_encode_command(
     input_path: Path,
     captions_path: Path | None,
+    music_path: Path | None,
     export_format: str,
     *,
     has_audio: bool,
     output_path: Path,
 ) -> list[str]:
-    """Burns in captions (if any) and encodes to the final container/codec
-    for `export_format`.
+    """Burns in captions (if any), mixes in background music (if any), and
+    encodes to the final container/codec for `export_format`.
     """
     codecs = EXPORT_FORMAT_CODECS.get(export_format, EXPORT_FORMAT_CODECS[DEFAULT_EXPORT_FORMAT])
-
     cmd = ["ffmpeg", "-y", "-i", str(input_path)]
+
+    if music_path is None:
+        # Unchanged from before music support: single input, so plain -vf
+        # and implicit stream selection are unambiguous.
+        if captions_path is not None:
+            cmd += ["-vf", f"ass='{_escape_ass_filter_path(captions_path)}'"]
+        cmd += codecs["video"]
+        cmd += codecs["audio"] if has_audio else ["-an"]
+        cmd += [str(output_path)]
+        return cmd
+
+    # Two inputs from here on (dialogue + generated music) -- explicit
+    # -map for every stream rather than relying on ffmpeg's default
+    # stream-selection heuristic, which is not guaranteed to pick the
+    # dialogue video/audio over the music input's.
+    cmd += ["-i", str(music_path)]
+    filter_complex_parts: list[str] = []
+    video_map = "0:v"
     if captions_path is not None:
-        # libass filter argument escaping: backslashes and colons are
-        # special inside ffmpeg filter option strings.
-        escaped = str(captions_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-        cmd += ["-vf", f"ass='{escaped}'"]
+        filter_complex_parts.append(f"[0:v]ass='{_escape_ass_filter_path(captions_path)}'[vout]")
+        video_map = "[vout]"
+
+    if has_audio:
+        filter_complex_parts.append(f"[1:a]volume={MUSIC_MIX_VOLUME}[music]")
+        # normalize=0 is deliberate and load-bearing: amix's default
+        # normalize=1 would automatically quiet *both* inputs to avoid
+        # clipping, silently dropping dialogue volume too. Disabling it,
+        # combined with the explicit pre-attenuation on the music input
+        # above, is what actually keeps dialogue at full volume with
+        # music audibly under it. duration=first anchors the mixed
+        # output's length to the dialogue track -- the authoritative
+        # length from concatenation -- rather than the separately
+        # generated (approximately matching) music file.
+        filter_complex_parts.append(
+            "[0:a][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]"
+        )
+        audio_map = "[aout]"
+    else:
+        # No dialogue audio at all -- the generated music is the sole
+        # audio output, no mixing needed.
+        audio_map = "1:a"
+
+    if filter_complex_parts:
+        cmd += ["-filter_complex", ";".join(filter_complex_parts)]
+    cmd += ["-map", video_map, "-map", audio_map]
     cmd += codecs["video"]
-    cmd += codecs["audio"] if has_audio else ["-an"]
+    cmd += codecs["audio"]
     cmd += [str(output_path)]
     return cmd

@@ -72,6 +72,8 @@ def generate_analysis_task(self: Task, video_id: str) -> str:
                         rationale=h.rationale,
                         score=h.score,
                         suggested_clip_title=h.suggested_clip_title,
+                        emoji=h.emoji,
+                        transition=h.transition,
                     )
                     for h in analysis.highlights
                 ]

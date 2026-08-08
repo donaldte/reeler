@@ -16,6 +16,7 @@ SNAPSHOT_FIELDS = [
     "font",
     "color_theme",
     "transition_style",
+    "music_style",
     "subtitle_language",
     "video_quality",
     "export_format",

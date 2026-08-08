@@ -10,6 +10,8 @@ class _Highlight:
     rank: int
     start_time: float
     end_time: float
+    emoji: str | None = None
+    transition: str | None = None
 
 
 def test_selects_all_highlights_when_they_fit():
@@ -62,3 +64,15 @@ def test_clip_duration_property():
     highlights = [_Highlight(rank=1, start_time=5.0, end_time=12.5)]
     clips = select_clips_for_duration(highlights, target_duration=60.0)
     assert clips[0].duration == 7.5
+
+
+def test_emoji_and_transition_carried_onto_clip_spec():
+    highlights = [
+        _Highlight(rank=1, start_time=0.0, end_time=10.0, emoji="🔥", transition="cut"),
+        _Highlight(rank=2, start_time=20.0, end_time=30.0, emoji=None, transition=None),
+    ]
+    clips = select_clips_for_duration(highlights, target_duration=60.0)
+    assert clips[0].emoji == "🔥"
+    assert clips[0].transition == "cut"
+    assert clips[1].emoji is None
+    assert clips[1].transition is None

@@ -20,6 +20,8 @@ class HighlightLike(Protocol):
     rank: int
     start_time: float
     end_time: float
+    emoji: str | None
+    transition: str | None
 
 
 def select_clips_for_duration(
@@ -47,4 +49,13 @@ def select_clips_for_duration(
         total += duration
 
     selected.sort(key=lambda h: h.start_time)
-    return [ClipSpec(start=h.start_time, end=h.end_time, rank=h.rank) for h in selected]
+    return [
+        ClipSpec(
+            start=h.start_time,
+            end=h.end_time,
+            rank=h.rank,
+            emoji=h.emoji,
+            transition=h.transition,
+        )
+        for h in selected
+    ]

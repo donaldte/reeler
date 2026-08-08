@@ -40,6 +40,14 @@ class Highlight(TimeStampedModel):
     rationale = models.TextField()
     score = models.FloatField(null=True, blank=True)
     suggested_clip_title = models.CharField(max_length=255, null=True, blank=True)
+    emoji = models.CharField(max_length=8, null=True, blank=True)
+    transition = models.CharField(
+        max_length=8,
+        null=True,
+        blank=True,
+        help_text="AI-suggested per-clip transition ('cut' or 'fade'); refines, does "
+        "not override, ExportSettings.transition_style. See domain/rendering/renderer.py.",
+    )
 
     class Meta:
         db_table = "highlights_highlight"

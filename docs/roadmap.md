@@ -72,7 +72,9 @@ highlights through to a downloadable video:
   two inputs — a real fast-follow once this simpler version is confirmed
   working on real hardware (see [docs/development.md](development.md) for
   why command-construction correctness and execution correctness had to
-  be verified separately for this feature).
+  be verified separately for this feature). Since the quality pass below,
+  each highlight can also carry its own AI-suggested `cut`/`fade`
+  preference, which refines (never overrides) this global setting.
 - **Karaoke captions**: `caption_style="karaoke"` renders identically to
   `"bold"` — true word-by-word highlighting needs word-level timestamps,
   and `FasterWhisperProvider` currently requests `word_timestamps=False`.
@@ -81,8 +83,34 @@ highlights through to a downloadable video:
 - **Subtitle translation**: `subtitle_language` values other than
   `"auto"`/the transcript's own detected language still render the
   original-language transcript — no translation capability exists yet.
-- B-roll and background music remain fully deferred to Phase 4 (see
-  below) — `ExportSettings.broll_type`/`music_style` stay saved-but-inert.
+- **Background music** is generated procedurally with ffmpeg's own
+  `lavfi` synthetic sources (`domain/rendering/music.py`) — a simple
+  layered ambient pad per `music_style`, not a curated real track. No
+  downloaded/bundled audio, deliberately, to avoid licensing risk and
+  keep rendering fully offline. **B-roll** (real or AI-generated stock
+  footage/images) remains fully deferred to Phase 4 (see below) —
+  `ExportSettings.broll_type` stays saved-but-inert.
+
+**Render quality & reliability pass** (post-launch, after the first real
+render came out far short of its target duration):
+
+- **Highlight-count reliability**: the analysis prompt's schema example
+  used to show a single highlight object in its array — a plausible
+  reason smaller local models under-delivered on `num_highlights` (an
+  observed case: 3 requested, 1 returned, so the render came out to
+  ~23s instead of 60s). The example now shows two, the instruction text
+  is unhedged ("EXACTLY N" instead of "up to N"), and
+  `generate_analysis_with_repair` also retries once on a valid-but-short
+  count, not just invalid JSON — without ever discarding a short-but-valid
+  result in favor of failing outright. See
+  `domain/ai/prompts/highlight_extraction.py` and
+  [docs/ai_pipeline.md](ai_pipeline.md).
+- **Per-highlight emoji**: the LLM suggests one emoji per highlight as a
+  caption accent, shown once on the clip's first caption line — never
+  altering the transcript text itself.
+- **Caption box polish**: larger fonts, heavier outline, and more bottom
+  margin for the platform-UI safe area — best-effort visual tuning, see
+  `domain/rendering/captions.py`.
 
 ## Phase 4 — media sourcing
 

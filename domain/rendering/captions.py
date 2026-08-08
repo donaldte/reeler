@@ -12,6 +12,13 @@ Known limitations (see docs/ai_pipeline.md and docs/roadmap.md):
 - `subtitle_language` values other than `"auto"`/the transcript's own
   detected language still render the original-language transcript — no
   translation capability exists yet.
+
+`CAPTION_STYLE_PARAMS`/`margin_v` below are tuned by eye for a typical
+9:16 short (bigger box, heavier outline, more headroom above the
+platform-UI safe area than a plain subtitle track would use) — best-effort
+visual tuning, not something verifiable without a real ffmpeg render; see
+docs/development.md on why this whole module can only be confirmed on
+real hardware.
 """
 
 from collections.abc import Sequence
@@ -36,9 +43,9 @@ DEFAULT_FONT_NAME = "Arial"
 
 # BorderStyle 1 = outline+shadow, no box. BorderStyle 3 = opaque box behind text.
 CAPTION_STYLE_PARAMS = {
-    "minimal": {"fontsize": 36, "bold": False, "border_style": 1, "outline_width": 1},
-    "bold": {"fontsize": 56, "bold": True, "border_style": 3, "outline_width": 2},
-    "karaoke": {"fontsize": 56, "bold": True, "border_style": 3, "outline_width": 2},
+    "minimal": {"fontsize": 40, "bold": False, "border_style": 1, "outline_width": 2},
+    "bold": {"fontsize": 58, "bold": True, "border_style": 3, "outline_width": 3},
+    "karaoke": {"fontsize": 58, "bold": True, "border_style": 3, "outline_width": 3},
 }
 DEFAULT_CAPTION_STYLE = "bold"
 
@@ -86,19 +93,27 @@ def build_ass_captions(
         overlapping = [
             seg for seg in segments if seg.end_time > clip.start and seg.start_time < clip.end
         ]
-        for seg in overlapping:
+        for line_index, seg in enumerate(overlapping):
             new_start = cumulative_offset + max(0.0, seg.start_time - clip.start)
             new_end = cumulative_offset + min(clip.duration, seg.end_time - clip.start)
             if new_end <= new_start:
                 continue
             text = seg.text.strip().replace("\n", "\\N").replace("{", "(").replace("}", ")")
+            # The AI-suggested emoji is a highlight-level accent, shown once
+            # on the clip's first caption line — not a per-line decoration,
+            # and never altering the transcript text itself.
+            if line_index == 0 and clip.emoji:
+                text = f"{clip.emoji} {text}"
             dialogue_lines.append(
                 f"Dialogue: 0,{_format_ass_timestamp(new_start)},"
                 f"{_format_ass_timestamp(new_end)},Default,,0,0,0,,{text}"
             )
         cumulative_offset += clip.duration
 
-    margin_v = round(output_height * 0.08)
+    # 12% rather than a plain subtitle track's ~8%: leaves headroom above
+    # the caption/like/share UI most short-form platforms overlay near the
+    # bottom of the frame.
+    margin_v = round(output_height * 0.12)
     bold_flag = -1 if style["bold"] else 0
 
     header = (

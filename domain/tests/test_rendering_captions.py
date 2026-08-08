@@ -121,6 +121,54 @@ def test_zero_duration_segment_after_clipping_is_skipped():
     assert "instant" not in ass
 
 
+def test_emoji_prepended_to_first_line_of_each_clip_only():
+    segments = [
+        _Segment(start_time=1.0, end_time=3.0, text="first line"),
+        _Segment(start_time=4.0, end_time=6.0, text="second line"),
+    ]
+    clips = [ClipSpec(start=0.0, end=10.0, rank=1, emoji="🔥")]
+
+    ass = build_ass_captions(
+        segments, clips, caption_style="bold", font="inter", color_theme="default",
+        output_width=1080, output_height=1920,
+    )  # fmt: skip
+
+    assert ",,🔥 first line" in ass
+    assert ",,second line" in ass
+    assert ",,🔥 second line" not in ass
+
+
+def test_no_emoji_prefix_when_clip_emoji_is_none():
+    segments = [_Segment(start_time=1.0, end_time=3.0, text="hello")]
+    clips = [ClipSpec(start=0.0, end=10.0, rank=1, emoji=None)]
+
+    ass = build_ass_captions(
+        segments, clips, caption_style="bold", font="inter", color_theme="default",
+        output_width=1080, output_height=1920,
+    )  # fmt: skip
+
+    assert ",,hello" in ass
+
+
+def test_second_clips_first_line_also_gets_its_own_emoji():
+    segments = [
+        _Segment(start_time=1.0, end_time=3.0, text="first"),
+        _Segment(start_time=51.0, end_time=53.0, text="second"),
+    ]
+    clips = [
+        ClipSpec(start=0.0, end=10.0, rank=1, emoji="🔥"),
+        ClipSpec(start=50.0, end=60.0, rank=2, emoji="💡"),
+    ]
+
+    ass = build_ass_captions(
+        segments, clips, caption_style="bold", font="inter", color_theme="default",
+        output_width=1080, output_height=1920,
+    )  # fmt: skip
+
+    assert ",,🔥 first" in ass
+    assert ",,💡 second" in ass
+
+
 def test_curly_braces_in_text_are_escaped():
     """ASS uses {...} for inline override tags -- text containing literal
     braces must not be interpreted as styling directives.

@@ -51,6 +51,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Celery failure-handling mechanism (see Fixed, below) generalized out of
   `apps.videos.task_utils.pipeline_task_guard` so `apps.renders` gets the
   identical guarantee without duplicating it.
+- **Render quality & reliability pass**:
+  - Procedurally generated background music (`domain/rendering/music.py`)
+    — ffmpeg `lavfi` synthetic sources layered per `music_style`, mixed
+    under dialogue via `-filter_complex`/`amix` in
+    `build_final_encode_command`. No downloaded/bundled audio, kept
+    fully offline and licensing-free by design; a simple ambient pad,
+    not a curated real track — see [docs/roadmap.md](docs/roadmap.md).
+  - Per-highlight AI-suggested `transition` (`cut`/`fade`), refining
+    (not overriding) `ExportSettings.transition_style` per clip.
+  - Per-highlight AI-suggested `emoji`, shown once as an accent on each
+    clip's first caption line — the transcript text itself is never
+    altered.
+  - Caption box visual polish: larger fonts, heavier outline, more
+    bottom margin for the platform-UI safe area.
 
 ### Fixed
 
@@ -72,5 +86,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `docker-compose.prod.yml`'s `ports: []` overrides were silent no-ops
   (Compose merges, not replaces, `ports`/`volumes` across `-f` files) —
   switched to Compose's `!override` merge-control tag.
+- A render came out to only ~23s instead of the requested 60s: the
+  analysis step's LLM call returned fewer highlights than
+  `num_highlights` requested (observed: 1 instead of 3), and nothing
+  enforced or corrected that. The prompt's schema example showed only one
+  highlight object (likely encouraging models to under-deliver on count),
+  and `generate_analysis_with_repair` only retried on invalid JSON, never
+  on a valid-but-short highlight count. Fixed in
+  `domain/ai/prompts/highlight_extraction.py` — see Added, above, and
+  [docs/ai_pipeline.md](docs/ai_pipeline.md).
+- `apps/renders/services.py::SNAPSHOT_FIELDS` was missing `"music_style"`
+  — added in phase 2 to `ExportSettings` but never wired into
+  `RenderJob.settings_snapshot`, so the background-music feature could
+  never have activated regardless of what a user picked.
 
 [Unreleased]: https://github.com/donaldte/reeler/compare/main...HEAD

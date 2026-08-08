@@ -13,22 +13,33 @@ from domain.exceptions import (
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult, TranscriptSegmentDTO
 
-VALID_PAYLOAD = {
-    "summary": "Summary.",
-    "suggested_title": "Title",
-    "suggested_description": "Desc",
-    "suggested_hashtags": ["#a"],
-    "highlights": [
-        {
-            "rank": 1,
-            "start": 0.0,
-            "end": 5.0,
-            "rationale": "r",
-            "score": 0.5,
-            "suggested_clip_title": "c",
-        }
-    ],
-}
+
+def _payload_with_highlights(count: int) -> dict:
+    """A single-highlight payload against DEFAULT_NUM_HIGHLIGHTS (3) would
+    spuriously trigger generate_analysis_with_repair's count-repair path
+    (an extra httpx.post call the assertions below don't expect) — build a
+    payload with exactly as many highlights as the test's num_highlights.
+    """
+    return {
+        "summary": "Summary.",
+        "suggested_title": "Title",
+        "suggested_description": "Desc",
+        "suggested_hashtags": ["#a"],
+        "highlights": [
+            {
+                "rank": i + 1,
+                "start": float(i * 5),
+                "end": float(i * 5 + 4),
+                "rationale": "r",
+                "score": 0.5,
+                "suggested_clip_title": "c",
+            }
+            for i in range(count)
+        ],
+    }
+
+
+VALID_PAYLOAD = _payload_with_highlights(3)  # matches DEFAULT_NUM_HIGHLIGHTS
 
 
 def _transcript():
@@ -57,6 +68,7 @@ def test_generate_analysis_success():
 
     assert dto.suggested_title == "Title"
     assert dto.provider == "ollama"
+    mock_post.assert_called_once()  # count matched -- no repair round needed
     call_kwargs = mock_post.call_args.kwargs
     assert call_kwargs["json"]["model"] == "qwen2.5:3b"
     assert call_kwargs["json"]["options"]["temperature"] == 0.5  # DEFAULT_TEMPERATURE
@@ -66,7 +78,9 @@ def test_generate_analysis_passes_custom_num_highlights_and_temperature():
     provider = OllamaProvider()
     fake_response = MagicMock()
     fake_response.raise_for_status.return_value = None
-    fake_response.json.return_value = {"message": {"content": json.dumps(VALID_PAYLOAD)}}
+    fake_response.json.return_value = {
+        "message": {"content": json.dumps(_payload_with_highlights(7))}
+    }
 
     with patch("httpx.post", return_value=fake_response) as mock_post:
         provider.generate_analysis(
@@ -74,10 +88,11 @@ def test_generate_analysis_passes_custom_num_highlights_and_temperature():
             num_highlights=7, temperature=0.9,
         )  # fmt: skip
 
+    mock_post.assert_called_once()  # count matched -- no repair round needed
     call_kwargs = mock_post.call_args.kwargs
     assert call_kwargs["json"]["options"]["temperature"] == 0.9
     user_prompt = call_kwargs["json"]["messages"][1]["content"]
-    assert "up to 7 highlight-worthy moments" in user_prompt
+    assert "EXACTLY 7 highlight-worthy moments" in user_prompt
 
 
 def test_generate_analysis_raises_transient_on_connection_error():

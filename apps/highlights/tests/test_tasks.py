@@ -40,7 +40,14 @@ FAKE_ANALYSIS = AnalysisDTO(
     suggested_hashtags=["#a", "#b"],
     highlights=[
         HighlightDTO(
-            rank=1, start=0.0, end=5.0, rationale="r", score=0.8, suggested_clip_title="c"
+            rank=1,
+            start=0.0,
+            end=5.0,
+            rationale="r",
+            score=0.8,
+            suggested_clip_title="c",
+            emoji="🔥",
+            transition="cut",
         ),
     ],
     provider="ollama",
@@ -60,6 +67,9 @@ def test_generate_analysis_task_persists_result_and_highlights():
     result = AnalysisResult.objects.get(video=video)
     assert result.suggested_title == "Title"
     assert result.highlights.count() == 1
+    highlight = result.highlights.get()
+    assert highlight.emoji == "🔥"
+    assert highlight.transition == "cut"
     video.refresh_from_db()
     assert video.status == UploadedVideo.Status.COMPLETED
     assert video.progress_percent == 100

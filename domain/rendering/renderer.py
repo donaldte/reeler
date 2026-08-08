@@ -23,6 +23,7 @@ from domain.rendering.ffmpeg_commands import (
     build_extract_clip_command,
     build_final_encode_command,
 )
+from domain.rendering.music import build_music_generation_command
 
 logger = logging.getLogger("reeler")
 
@@ -93,7 +94,13 @@ def render_video(
         settings_snapshot["aspect_ratio"], settings_snapshot["video_quality"]
     )
     crop_params = compute_crop_params(source_width, source_height, out_dims.width, out_dims.height)
-    apply_fade = settings_snapshot["transition_style"] != "none"
+    # ExportSettings.transition_style is the master on/off switch ("none"
+    # means never fade, full stop). When transitions are on, each
+    # highlight's own AI-suggested `transition` refines that per clip: an
+    # explicit "cut" skips the fade for that one punchy moment, while
+    # `None` (older analysis, or the model didn't specify) defaults to
+    # fading -- the same uniform behavior as before per-clip transitions.
+    transitions_enabled = settings_snapshot["transition_style"] != "none"
 
     report(20, "extracting_clips")
     clip_paths: list[Path] = []
@@ -105,7 +112,7 @@ def render_video(
             crop_params,
             out_dims,
             has_audio=has_audio,
-            apply_fade=apply_fade,
+            apply_fade=transitions_enabled and clip.transition != "cut",
             output_path=clip_output,
         )
         _run_ffmpeg(cmd, step=f"extracting clip {index + 1}/{len(clips)}")
@@ -138,6 +145,21 @@ def render_video(
         build_concat_command(concat_list_path, concatenated_path), step="concatenating clips"
     )
 
+    music_path: Path | None = None
+    # .get(..., "none"): older RenderJob rows created before music_style
+    # was added to SNAPSHOT_FIELDS won't have the key in their frozen
+    # snapshot, but those are never reprocessed (a RenderJob only renders
+    # once) -- this default just keeps that theoretical case from raising.
+    music_style = settings_snapshot.get("music_style", "none")
+    if music_style != "none":
+        report(75, "generating_music")
+        music_path = workdir / "music.m4a"
+        total_duration = sum(clip.duration for clip in clips)
+        _run_ffmpeg(
+            build_music_generation_command(music_style, total_duration, music_path),
+            step="generating background music",
+        )
+
     report(80, "encoding")
     export_format = settings_snapshot["export_format"]
     final_output_path = workdir / f"output.{export_format}"
@@ -145,6 +167,7 @@ def render_video(
         build_final_encode_command(
             concatenated_path,
             captions_path,
+            music_path,
             export_format,
             has_audio=has_audio,
             output_path=final_output_path,

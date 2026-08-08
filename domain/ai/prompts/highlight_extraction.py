@@ -5,8 +5,9 @@ implementation, so Ollama and OpenRouter parse/validate identically.
 import json
 import re
 from collections.abc import Callable
+from typing import Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from domain.ai.base import AnalysisDTO, HighlightDTO
 from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS
@@ -41,6 +42,15 @@ REPAIR_PROMPT = (
 )
 
 
+def _count_repair_prompt(got: int, want: int) -> str:
+    return (
+        f"Your response was valid JSON but only included {got} highlight(s) — {want} "
+        f"were requested. Respond again with the full corrected JSON object containing "
+        f"exactly {want} distinct highlights spread across the video's timeline — no "
+        f"markdown fences, no commentary."
+    )
+
+
 class HighlightSchema(BaseModel):
     rank: int
     start: float
@@ -48,6 +58,11 @@ class HighlightSchema(BaseModel):
     rationale: str
     score: float | None = None
     suggested_clip_title: str | None = None
+    # max_length=8 is a safety net, not a real emoji-counting bound (some
+    # emoji are multiple UTF-16/grapheme units) -- just enough to reject a
+    # model that ignores the instruction and writes a phrase instead.
+    emoji: str | None = Field(default=None, max_length=8)
+    transition: Literal["cut", "fade"] | None = None
 
 
 class AnalysisSchema(BaseModel):
@@ -100,6 +115,11 @@ def build_prompt(
     )
     scene_lines = "\n".join(f"Scene {s.index}: {s.start:.1f}-{s.end:.1f}s" for s in scenes)
 
+    # Two example highlight objects, not one: a single-item example array
+    # is a plausible reason smaller local models pattern-match the
+    # example's *length* rather than treating it as a repeatable schema —
+    # observed in practice as a model asked for 3 highlights returning
+    # only 1. See docs/ai_pipeline.md.
     schema_example = {
         "summary": "2-4 sentence summary of the video content.",
         "suggested_title": "Punchy title under 100 characters.",
@@ -113,7 +133,19 @@ def build_prompt(
                 "rationale": "Why this moment is compelling.",
                 "score": 0.92,
                 "suggested_clip_title": "Optional short title for this clip.",
-            }
+                "emoji": "🔥",
+                "transition": "fade",
+            },
+            {
+                "rank": 2,
+                "start": 80.0,
+                "end": 110.0,
+                "rationale": "Why this second moment is compelling.",
+                "score": 0.81,
+                "suggested_clip_title": "Optional short title for this clip.",
+                "emoji": "💡",
+                "transition": "cut",
+            },
         ],
     }
 
@@ -121,9 +153,14 @@ def build_prompt(
         f"Video duration: {video_duration:.1f} seconds.\n\n"
         f"Timestamped transcript:\n{transcript_lines}{downsample_note}\n\n"
         f"Detected scene boundaries:\n{scene_lines}\n\n"
-        f"Identify up to {num_highlights} highlight-worthy moments, ranked by how "
+        f"Identify EXACTLY {num_highlights} highlight-worthy moments, ranked by how "
         f"compelling they are for a short-form video, each between roughly 5 and 60 "
-        f"seconds long. Respond with JSON matching exactly this shape:\n"
+        f"seconds long, spread across the full video timeline rather than clustered "
+        f'together. For each highlight, also pick one relevant "emoji" capturing its '
+        f'mood or topic, and a "transition" of either "cut" (for an abrupt, punchy '
+        f'moment) or "fade" (for a softer topic change). Respond with JSON matching '
+        f"exactly this shape (this example shows 2 highlights to illustrate the "
+        f"repeating structure — your response must contain {num_highlights}):\n"
         f"{json.dumps(schema_example, indent=2)}"
     )
 
@@ -167,11 +204,20 @@ def generate_analysis_with_repair(
 ) -> tuple[AnalysisSchema, str]:
     """Shared provider-agnostic flow: build the prompt, send it via the
     caller-supplied `send_chat` transport, parse/validate the response, and
-    make exactly one repair attempt if parsing fails.
+    make exactly one repair attempt if the first response is either invalid
+    JSON or valid-but-short on highlights (observed in practice: a model
+    asked for 3 highlights returning only 1 — see docs/ai_pipeline.md).
 
     `send_chat` is a thin closure each provider supplies (e.g. an httpx POST
     to Ollama's or OpenRouter's chat endpoint) so this function stays free
     of any HTTP/provider-specific concerns.
+
+    The repair round never *loses* a usable result: if the first response
+    parsed but was short, and the repair either fails to parse or comes
+    back even shorter, the original short-but-valid result is kept rather
+    than discarded — a short render beats a failed one. Only a first
+    response that never parsed at all is a hard failure if the repair also
+    fails.
 
     Returns the validated schema plus the raw text that produced it (the
     caller persists the raw text as an audit trail).
@@ -189,14 +235,32 @@ def generate_analysis_with_repair(
 
     raw = send_chat(messages)
     try:
-        return parse_analysis_response(raw), raw
+        schema: AnalysisSchema | None = parse_analysis_response(raw)
     except ProviderResponseParseError:
-        messages.append({"role": "assistant", "content": raw})
-        messages.append({"role": "user", "content": REPAIR_PROMPT})
-        raw_retry = send_chat(messages)
-        # Second failure propagates as ProviderResponseParseError (permanent,
-        # no further retries) — the caller's Celery task will not retry it.
-        return parse_analysis_response(raw_retry), raw_retry
+        schema = None
+
+    if schema is not None and len(schema.highlights) >= num_highlights:
+        return schema, raw
+
+    repair_message = (
+        REPAIR_PROMPT
+        if schema is None
+        else _count_repair_prompt(len(schema.highlights), num_highlights)
+    )
+    messages.append({"role": "assistant", "content": raw})
+    messages.append({"role": "user", "content": repair_message})
+    raw_retry = send_chat(messages)
+
+    try:
+        schema_retry = parse_analysis_response(raw_retry)
+    except ProviderResponseParseError:
+        if schema is not None:
+            return schema, raw  # keep the original valid-but-short result
+        raise  # never got anything valid -- genuinely fail
+
+    if schema is not None and len(schema_retry.highlights) < len(schema.highlights):
+        return schema, raw  # repair made it worse -- keep the original
+    return schema_retry, raw_retry
 
 
 def schema_to_dto(
@@ -215,6 +279,8 @@ def schema_to_dto(
                 rationale=h.rationale,
                 score=h.score,
                 suggested_clip_title=h.suggested_clip_title,
+                emoji=h.emoji,
+                transition=h.transition,
             )
             for h in schema.highlights
         ],

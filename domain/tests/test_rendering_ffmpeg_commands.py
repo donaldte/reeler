@@ -103,7 +103,7 @@ def test_concat_command_uses_demuxer_and_stream_copy():
 
 def test_final_encode_command_mp4_codecs():
     cmd = build_final_encode_command(
-        Path("/tmp/in.mp4"), None, "mp4", has_audio=True, output_path=Path("/tmp/out.mp4")
+        Path("/tmp/in.mp4"), None, None, "mp4", has_audio=True, output_path=Path("/tmp/out.mp4")
     )
     assert "libx264" in cmd
     assert "aac" in cmd
@@ -112,7 +112,7 @@ def test_final_encode_command_mp4_codecs():
 
 def test_final_encode_command_webm_uses_vp9_and_opus():
     cmd = build_final_encode_command(
-        Path("/tmp/in.mp4"), None, "webm", has_audio=True, output_path=Path("/tmp/out.webm")
+        Path("/tmp/in.mp4"), None, None, "webm", has_audio=True, output_path=Path("/tmp/out.webm")
     )
     assert "libvpx-vp9" in cmd
     assert "libopus" in cmd
@@ -121,7 +121,7 @@ def test_final_encode_command_webm_uses_vp9_and_opus():
 
 def test_final_encode_command_no_audio_adds_an():
     cmd = build_final_encode_command(
-        Path("/tmp/in.mp4"), None, "mp4", has_audio=False, output_path=Path("/tmp/out.mp4")
+        Path("/tmp/in.mp4"), None, None, "mp4", has_audio=False, output_path=Path("/tmp/out.mp4")
     )
     assert "-an" in cmd
     assert "aac" not in cmd
@@ -131,6 +131,7 @@ def test_final_encode_command_burns_captions_when_provided():
     cmd = build_final_encode_command(
         Path("/tmp/in.mp4"),
         Path("/tmp/captions.ass"),
+        None,
         "mp4",
         has_audio=True,
         output_path=Path("/tmp/out.mp4"),
@@ -142,6 +143,67 @@ def test_final_encode_command_burns_captions_when_provided():
 
 def test_final_encode_command_unknown_format_falls_back_to_mp4_codecs():
     cmd = build_final_encode_command(
-        Path("/tmp/in.mp4"), None, "avi", has_audio=True, output_path=Path("/tmp/out.avi")
+        Path("/tmp/in.mp4"), None, None, "avi", has_audio=True, output_path=Path("/tmp/out.avi")
     )
     assert "libx264" in cmd
+
+
+def test_final_encode_command_with_music_and_dialogue_mixes_and_keeps_dialogue_full_volume():
+    cmd = build_final_encode_command(
+        Path("/tmp/in.mp4"),
+        None,
+        Path("/tmp/music.m4a"),
+        "mp4",
+        has_audio=True,
+        output_path=Path("/tmp/out.mp4"),
+    )
+    assert cmd[cmd.index("-i") + 1] == "/tmp/in.mp4"
+    # music is the second input
+    assert cmd.count("-i") == 2
+    assert "/tmp/music.m4a" in cmd
+    filter_complex = cmd[cmd.index("-filter_complex") + 1]
+    assert "[1:a]volume=0.25[music]" in filter_complex
+    # normalize=0 is load-bearing -- see build_final_encode_command's docstring
+    assert "normalize=0" in filter_complex
+    assert "[0:a][music]amix=inputs=2:duration=first" in filter_complex
+    assert "-map" in cmd
+    maps = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-map"]
+    assert "[aout]" in maps
+    assert "0:v" in maps
+    assert "aac" in cmd  # dialogue present -> normal audio codec, not -an
+
+
+def test_final_encode_command_with_music_and_captions_chains_both_filters():
+    cmd = build_final_encode_command(
+        Path("/tmp/in.mp4"),
+        Path("/tmp/captions.ass"),
+        Path("/tmp/music.m4a"),
+        "mp4",
+        has_audio=True,
+        output_path=Path("/tmp/out.mp4"),
+    )
+    filter_complex = cmd[cmd.index("-filter_complex") + 1]
+    assert "[0:v]ass=" in filter_complex
+    assert "[vout]" in filter_complex
+    assert "amix" in filter_complex
+    maps = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-map"]
+    assert "[vout]" in maps
+    assert "[aout]" in maps
+
+
+def test_final_encode_command_with_music_and_no_dialogue_audio_uses_music_directly():
+    cmd = build_final_encode_command(
+        Path("/tmp/in.mp4"),
+        None,
+        Path("/tmp/music.m4a"),
+        "mp4",
+        has_audio=False,
+        output_path=Path("/tmp/out.mp4"),
+    )
+    maps = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-map"]
+    assert "1:a" in maps  # music stream used directly, no mixing needed
+    assert "aac" in cmd  # still has an audio codec (the music track)
+    assert "-an" not in cmd
+    # no amix necessary when there's nothing to mix music with
+    if "-filter_complex" in cmd:
+        assert "amix" not in cmd[cmd.index("-filter_complex") + 1]

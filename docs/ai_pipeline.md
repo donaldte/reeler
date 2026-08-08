@@ -48,16 +48,31 @@ Ollama and OpenRouter parse identically:
 1. `build_prompt()` — assembles the timestamped transcript, scene
    boundaries, and video duration into a single prompt instructing the
    model to return one JSON object (summary, suggested title/description/
-   hashtags, ranked highlights with rationale).
+   hashtags, ranked highlights with rationale, plus a suggested `emoji`
+   and `cut`/`fade` `transition` per highlight). The schema example shown
+   to the model contains **two** highlight objects, not one — a
+   single-item example array turned out to be a plausible reason smaller
+   local models under-delivered on `num_highlights` (observed in
+   production: 3 requested, 1 returned), likely pattern-matching the
+   example's length rather than treating it as a repeatable schema. The
+   instruction text is also unhedged ("Identify EXACTLY N", not "up to
+   N").
 2. `parse_analysis_response()` — extracts the first `{...}` block from the
    raw completion (tolerates markdown fences / stray commentary) and
    validates it against `AnalysisSchema` (Pydantic).
 3. `generate_analysis_with_repair()` — the shared retry flow every provider
-   calls: send the prompt, try to parse; on failure, send exactly one
-   repair message ("your last response wasn't valid JSON, try again") and
-   parse the retry. A second failure raises
-   `domain.exceptions.ProviderResponseParseError` (a `PermanentPipelineError`
-   — no further retries; see `apps/highlights/tasks.py`).
+   calls: send the prompt, try to parse. One repair round happens if
+   either (a) the response wasn't valid JSON, or (b) it parsed fine but
+   came back with fewer highlights than `num_highlights` — using a
+   count-specific repair message in the second case, a generic
+   JSON-repair message in the first. A short-but-valid first result is
+   never discarded: if the repair round fails to parse, or comes back
+   even shorter, the original result is kept rather than losing a usable
+   analysis over an imperfect count. A first response that never parsed
+   at all, with a repair that also fails to parse, is the only case that
+   raises `domain.exceptions.ProviderResponseParseError` (a
+   `PermanentPipelineError` — no further retries; see
+   `apps/highlights/tasks.py`).
 
 This shared flow is why adding a new *LLM* provider is small: you only
 implement the HTTP transport (`_send_chat`), not prompt construction or

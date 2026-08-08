@@ -64,6 +64,29 @@ def test_parse_analysis_response_raises_on_schema_mismatch():
         parse_analysis_response(json.dumps(bad_payload))
 
 
+def _payload_with_highlights(count: int) -> dict:
+    """VALID_PAYLOAD's `highlights` array has exactly one entry, which
+    would spuriously trigger the count-repair path against
+    DEFAULT_NUM_HIGHLIGHTS (3) in tests that don't care about count
+    adherence -- this builds a payload with an arbitrary highlight count
+    for the tests that do.
+    """
+    return {
+        **VALID_PAYLOAD,
+        "highlights": [
+            {
+                "rank": i + 1,
+                "start": float(i * 5),
+                "end": float(i * 5 + 4),
+                "rationale": f"Highlight {i}.",
+                "score": 0.8,
+                "suggested_clip_title": f"Clip {i}",
+            }
+            for i in range(count)
+        ],
+    }
+
+
 def test_generate_analysis_with_repair_succeeds_first_try():
     calls = []
 
@@ -71,8 +94,14 @@ def test_generate_analysis_with_repair_succeeds_first_try():
         calls.append(messages)
         return json.dumps(VALID_PAYLOAD)
 
+    # num_highlights=1 matches VALID_PAYLOAD's single highlight -- this
+    # test is about the first-try-succeeds path, not count adherence.
     schema, _raw = generate_analysis_with_repair(
-        send_chat=send_chat, transcript=_transcript(), scenes=_scenes(), video_duration=10.0
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=1,
     )
     assert schema.suggested_title == "Testing Rocks"
     assert len(calls) == 1
@@ -88,7 +117,11 @@ def test_generate_analysis_with_repair_retries_once_on_bad_json():
         return json.dumps(VALID_PAYLOAD)
 
     schema, _raw = generate_analysis_with_repair(
-        send_chat=send_chat, transcript=_transcript(), scenes=_scenes(), video_duration=10.0
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=1,
     )
     assert schema.suggested_title == "Testing Rocks"
     assert len(calls) == 2
@@ -104,6 +137,88 @@ def test_generate_analysis_with_repair_raises_after_second_failure():
         generate_analysis_with_repair(
             send_chat=send_chat, transcript=_transcript(), scenes=_scenes(), video_duration=10.0
         )
+
+
+def test_generate_analysis_with_repair_retries_once_on_short_count():
+    """The count-repair path: a first response that parses fine but comes
+    up short on highlights gets exactly one targeted retry, not treated
+    as a parse failure and not looped indefinitely.
+    """
+    calls = []
+
+    def send_chat(messages):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(_payload_with_highlights(1))
+        return json.dumps(_payload_with_highlights(3))
+
+    schema, _raw = generate_analysis_with_repair(
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+    )
+    assert len(schema.highlights) == 3
+    assert len(calls) == 2
+    # the repair message is count-specific, not the generic JSON-repair one
+    assert "only included 1 highlight" in calls[1][-1]["content"]
+
+
+def test_generate_analysis_with_repair_keeps_original_when_repair_also_short():
+    calls = []
+
+    def send_chat(messages):
+        calls.append(messages)
+        return json.dumps(_payload_with_highlights(1))
+
+    schema, _raw = generate_analysis_with_repair(
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+    )
+    assert len(schema.highlights) == 1  # short-but-valid is kept, not discarded
+    assert len(calls) == 2  # still just one repair attempt, no infinite loop
+
+
+def test_generate_analysis_with_repair_keeps_original_when_repair_worse():
+    calls = []
+
+    def send_chat(messages):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(_payload_with_highlights(2))
+        return json.dumps(_payload_with_highlights(1))
+
+    schema, _raw = generate_analysis_with_repair(
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+    )
+    assert len(schema.highlights) == 2  # the repair made it worse, original kept
+
+
+def test_generate_analysis_with_repair_keeps_original_when_repair_fails_to_parse():
+    calls = []
+
+    def send_chat(messages):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps(_payload_with_highlights(1))
+        return "not json at all"
+
+    schema, _raw = generate_analysis_with_repair(
+        send_chat=send_chat,
+        transcript=_transcript(),
+        scenes=_scenes(),
+        video_duration=10.0,
+        num_highlights=3,
+    )
+    assert len(schema.highlights) == 1  # the original valid-but-short result survives
 
 
 def test_schema_to_dto_maps_all_fields():
@@ -134,6 +249,48 @@ def _long_transcript(num_segments: int) -> TranscriptionResult:
         provider="faster_whisper",
         model="small",
     )
+
+
+def test_build_prompt_demands_exact_highlight_count_with_two_example_highlights():
+    """Regression test for the observed production bug: a model asked for
+    3 highlights returned only 1. The schema example now shows two
+    highlight objects (not one) and the instruction text is unhedged.
+    """
+    prompt = build_prompt(
+        transcript=_transcript(), scenes=_scenes(), video_duration=10.0, num_highlights=3
+    )
+    assert "EXACTLY 3" in prompt
+    assert "up to" not in prompt.lower()
+    example_section = prompt.split('"highlights": [', 1)[1]
+    assert example_section.count('"rank"') == 2
+    assert '"emoji"' in prompt
+    assert '"transition"' in prompt
+
+
+def test_highlight_schema_accepts_emoji_and_transition():
+    payload = _payload_with_highlights(1)
+    payload["highlights"][0]["emoji"] = "🔥"
+    payload["highlights"][0]["transition"] = "cut"
+    schema = parse_analysis_response(json.dumps(payload))
+    assert schema.highlights[0].emoji == "🔥"
+    assert schema.highlights[0].transition == "cut"
+
+
+def test_highlight_schema_rejects_invalid_transition_value():
+    payload = _payload_with_highlights(1)
+    payload["highlights"][0]["transition"] = "sparkle-wipe"
+    with pytest.raises(ProviderResponseParseError, match="did not match schema"):
+        parse_analysis_response(json.dumps(payload))
+
+
+def test_schema_to_dto_maps_emoji_and_transition():
+    payload = _payload_with_highlights(1)
+    payload["highlights"][0]["emoji"] = "💡"
+    payload["highlights"][0]["transition"] = "fade"
+    schema = parse_analysis_response(json.dumps(payload))
+    dto = schema_to_dto(schema, provider="ollama", model="qwen2.5:3b", raw_text="{}")
+    assert dto.highlights[0].emoji == "💡"
+    assert dto.highlights[0].transition == "fade"
 
 
 def test_build_prompt_includes_full_transcript_when_under_budget():

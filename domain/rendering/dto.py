@@ -10,6 +10,8 @@ class ClipSpec:
     start: float
     end: float
     rank: int  # original highlight rank — kept for traceability/debugging only
+    emoji: str | None = None
+    transition: str | None = None
 
     @property
     def duration(self) -> float:

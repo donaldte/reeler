@@ -43,6 +43,6 @@ every error response has the same shape:
 
 ## Roadmap
 
-Project management endpoints and B-roll/music-related render options
+Project management endpoints and B-roll-related render options
 (currently saved but inert — see [docs/roadmap.md](roadmap.md)) are
 planned as phase 4 lands.

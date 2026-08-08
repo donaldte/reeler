@@ -15,6 +15,8 @@ class HighlightDTO:
     rationale: str
     score: float | None
     suggested_clip_title: str | None
+    emoji: str | None = None
+    transition: str | None = None
 
 
 @dataclass(frozen=True)
