@@ -181,7 +181,11 @@ AI_LLM_PROVIDER_KWARGS = {
     "ollama": {
         "base_url": env.str("OLLAMA_BASE_URL", default="http://localhost:11434"),
         "model": env.str("OLLAMA_MODEL", default="qwen2.5:3b"),
-        "timeout": env.float("OLLAMA_TIMEOUT", default=120.0),
+        # 120s is too tight on CPU-only hardware: the first request after
+        # container start also pays for loading model weights into RAM, and
+        # a several-minute video's transcript is a large prompt to prefill.
+        # Confirmed in practice — see docs/ai_pipeline.md#operational-notes.
+        "timeout": env.float("OLLAMA_TIMEOUT", default=300.0),
     },
     "openrouter": {
         "api_key": env.str("OPENROUTER_API_KEY", default=""),

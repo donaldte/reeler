@@ -106,3 +106,15 @@ backend appears, promoting it to a registry-based capability (mirroring
 - `make ollama-pull` is a separate step from `make up` on purpose — the
   model isn't pulled automatically on container start, to avoid a surprise
   multi-gigabyte download on first boot.
+- **Ollama timeouts on CPU-only hardware**: `OLLAMA_TIMEOUT` defaults to
+  300s. The first request after the container starts also pays for
+  loading the model's weights into RAM (Ollama keeps it loaded afterward,
+  so subsequent requests are faster), and a several-minute video produces
+  a large transcript to prefill — both add up on CPU-only inference. If
+  `docker compose logs worker` shows `Ollama request timed out` on the
+  analysis step, raise `OLLAMA_TIMEOUT` further in `.env` (no rebuild
+  needed, just `docker compose up -d web worker`), or switch to a smaller
+  model (`OLLAMA_MODEL=qwen2.5:1.5b` or similar) if your hardware is
+  consistently too slow for the 3B default. A 404 on the other hand (model
+  never pulled) now fails immediately rather than retrying — see
+  `domain/ai/providers/http_utils.py`.
