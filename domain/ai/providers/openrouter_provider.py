@@ -14,6 +14,7 @@ from domain.ai.prompts.highlight_extraction import (
     generate_analysis_with_repair,
     schema_to_dto,
 )
+from domain.ai.providers.http_utils import classify_http_status_error
 from domain.exceptions import ProviderResponseParseError, TransientProviderError
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult
@@ -66,6 +67,13 @@ class OpenRouterProvider(LLMProvider):
             response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise TransientProviderError(f"OpenRouter request timed out: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            hint = (
+                "Check OPENROUTER_API_KEY / OPENROUTER_MODEL."
+                if exc.response.status_code in (401, 404)
+                else ""
+            )
+            raise classify_http_status_error(exc, provider_name="OpenRouter", hint=hint) from exc
         except httpx.HTTPError as exc:
             raise TransientProviderError(f"OpenRouter request failed: {exc}") from exc
 

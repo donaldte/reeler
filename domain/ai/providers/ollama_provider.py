@@ -12,6 +12,7 @@ from domain.ai.prompts.highlight_extraction import (
     generate_analysis_with_repair,
     schema_to_dto,
 )
+from domain.ai.providers.http_utils import classify_http_status_error
 from domain.exceptions import ProviderResponseParseError, TransientProviderError
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult
@@ -56,9 +57,17 @@ class OllamaProvider(LLMProvider):
             response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise TransientProviderError(f"Ollama request timed out: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise classify_http_status_error(
+                exc,
+                provider_name="Ollama",
+                hint=(
+                    f"Is model {self.model!r} pulled? Run `make ollama-pull` "
+                    f"(or `docker compose exec ollama ollama pull {self.model}`)."
+                ),
+            ) from exc
         except httpx.HTTPError as exc:
-            # Includes connection errors (Ollama not running/still loading the
-            # model) and non-2xx responses — both are worth retrying.
+            # Connection errors — Ollama not running, still starting up, etc.
             raise TransientProviderError(f"Ollama request failed: {exc}") from exc
 
         try:

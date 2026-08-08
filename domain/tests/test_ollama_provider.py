@@ -5,7 +5,11 @@ import httpx
 import pytest
 
 from domain.ai.providers.ollama_provider import OllamaProvider
-from domain.exceptions import ProviderResponseParseError, TransientProviderError
+from domain.exceptions import (
+    PermanentPipelineError,
+    ProviderResponseParseError,
+    TransientProviderError,
+)
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult, TranscriptSegmentDTO
 
@@ -70,6 +74,42 @@ def test_generate_analysis_raises_transient_on_timeout():
     provider = OllamaProvider()
     with (
         patch("httpx.post", side_effect=httpx.TimeoutException("timed out")),
+        pytest.raises(TransientProviderError),
+    ):
+        provider.generate_analysis(transcript=_transcript(), scenes=[], video_duration=5.0)
+
+
+def test_generate_analysis_raises_permanent_on_model_not_found():
+    """Regression test: this is the exact production bug — a model that
+    was never `ollama pull`ed returns 404, which must fail fast (Permanent)
+    rather than burn through retries for a condition retrying can't fix.
+    """
+    provider = OllamaProvider(model="qwen2.5:3b")
+    fake_response = MagicMock()
+    fake_response.status_code = 404
+    fake_response.text = "model 'qwen2.5:3b' not found, try pulling it first"
+    fake_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "404", request=MagicMock(), response=fake_response
+    )
+
+    with (
+        patch("httpx.post", return_value=fake_response),
+        pytest.raises(PermanentPipelineError, match="ollama-pull"),
+    ):
+        provider.generate_analysis(transcript=_transcript(), scenes=[], video_duration=5.0)
+
+
+def test_generate_analysis_raises_transient_on_server_error():
+    provider = OllamaProvider()
+    fake_response = MagicMock()
+    fake_response.status_code = 503
+    fake_response.text = "service unavailable"
+    fake_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "503", request=MagicMock(), response=fake_response
+    )
+
+    with (
+        patch("httpx.post", return_value=fake_response),
         pytest.raises(TransientProviderError),
     ):
         provider.generate_analysis(transcript=_transcript(), scenes=[], video_duration=5.0)
