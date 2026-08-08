@@ -59,6 +59,25 @@ def test_generate_analysis_success():
     assert dto.provider == "ollama"
     call_kwargs = mock_post.call_args.kwargs
     assert call_kwargs["json"]["model"] == "qwen2.5:3b"
+    assert call_kwargs["json"]["options"]["temperature"] == 0.5  # DEFAULT_TEMPERATURE
+
+
+def test_generate_analysis_passes_custom_num_highlights_and_temperature():
+    provider = OllamaProvider()
+    fake_response = MagicMock()
+    fake_response.raise_for_status.return_value = None
+    fake_response.json.return_value = {"message": {"content": json.dumps(VALID_PAYLOAD)}}
+
+    with patch("httpx.post", return_value=fake_response) as mock_post:
+        provider.generate_analysis(
+            transcript=_transcript(), scenes=[], video_duration=5.0,
+            num_highlights=7, temperature=0.9,
+        )  # fmt: skip
+
+    call_kwargs = mock_post.call_args.kwargs
+    assert call_kwargs["json"]["options"]["temperature"] == 0.9
+    user_prompt = call_kwargs["json"]["messages"][1]["content"]
+    assert "up to 7 highlight-worthy moments" in user_prompt
 
 
 def test_generate_analysis_raises_transient_on_connection_error():

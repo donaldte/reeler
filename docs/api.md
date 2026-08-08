@@ -9,7 +9,7 @@ Framework, and documented via `drf-spectacular`.
 All endpoints require an authenticated session (`SessionAuthentication`) and
 scope results to the requesting user's own videos.
 
-## Endpoints (phase 1)
+## Endpoints
 
 | Method | Path | Description |
 |---|---|---|
@@ -20,11 +20,14 @@ scope results to the requesting user's own videos.
 | `GET` | `/api/v1/videos/{video_id}/transcript/` | Full transcript + segments |
 | `GET` | `/api/v1/videos/{video_id}/scenes/` | Detected scene boundaries |
 | `GET` | `/api/v1/videos/{video_id}/analysis/` | Summary, suggested title/description/hashtags, highlights |
+| `GET` | `/api/v1/videos/{video_id}/settings/` | Export settings (creates defaults on first touch) |
+| `PATCH` | `/api/v1/videos/{video_id}/settings/` | Update export settings; re-runs analysis if `num_highlights`/`ai_creativity_level` changed on a `COMPLETED` video (response includes `rerun_triggered: bool`) |
 
 Response shapes are defined by the serializers in each app's `api/serializers.py`
 (`apps/videos/api/serializers.py`, `apps/transcripts/api/serializers.py`,
-`apps/scenes/api/serializers.py`, `apps/highlights/api/serializers.py`) —
-those, plus the live Swagger UI, are the source of truth.
+`apps/scenes/api/serializers.py`, `apps/highlights/api/serializers.py`,
+`apps/export_settings/api/serializers.py`) — those, plus the live Swagger
+UI, are the source of truth.
 
 ## Error shape
 
@@ -37,6 +40,5 @@ every error response has the same shape:
 
 ## Roadmap
 
-Endpoints for triggering the (not-yet-implemented) final render/export step,
-managing customization settings, and project management are planned — see
-[docs/roadmap.md](roadmap.md).
+Endpoints for triggering the (not-yet-implemented) final render/export step
+and project management are planned — see [docs/roadmap.md](roadmap.md).

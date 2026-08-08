@@ -69,10 +69,16 @@ response validation.
 server):
 
 1. Create `domain/ai/providers/your_provider.py` implementing
-   `LLMProvider.generate_analysis()`. In the common case, this is a
-   one-line call to `domain.ai.prompts.highlight_extraction.generate_analysis_with_repair()`
-   passing a `send_chat(messages) -> str` closure that does your HTTP call —
-   see `ollama_provider.py` for the pattern.
+   `LLMProvider.generate_analysis()`, including its `num_highlights` and
+   `temperature` kwargs (both user-configurable per-video via
+   `apps.export_settings.models.ExportSettings` — see `docs/architecture.md`).
+   In the common case this is a one-line call to
+   `domain.ai.prompts.highlight_extraction.generate_analysis_with_repair()`
+   passing a `send_chat(messages) -> str` closure that does your HTTP call
+   (capture `temperature` in the closure, since `send_chat` itself only
+   takes `messages`) — see `ollama_provider.py` for the pattern. Ignoring
+   `temperature` if your backend has no equivalent is fine; ignoring
+   `num_highlights` is not, since it changes what the prompt itself asks for.
 2. Register it in `domain/ai/registry.py::LLM_PROVIDERS`.
 3. Add its config keys to `.env.example` and
    `AI_LLM_PROVIDER_KWARGS` in `config/settings/base.py`.

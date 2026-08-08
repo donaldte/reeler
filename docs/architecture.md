@@ -48,21 +48,34 @@ or `domain/` instead.
 | `videos` | `Project`, `UploadedVideo`; upload flow; pipeline orchestration entrypoint | `accounts` |
 | `transcripts` | `Transcript`, `TranscriptSegment` | `videos`, `domain.transcription` |
 | `scenes` | `Scene` | `videos`, `domain.scene_detection` |
-| `highlights` | `AnalysisResult`, `Highlight` | `videos`, `transcripts`, `scenes`, `domain.ai` |
+| `highlights` | `AnalysisResult`, `Highlight` | `videos`, `transcripts`, `scenes`, `domain.ai`, `export_settings` |
+| `export_settings` | `ExportSettings` — analysis/export customization | `videos` |
 | `ai_providers` | `AIProviderConfig` catalog (admin visibility only, phase 1) | — |
 
 `apps.videos` is the only app that knows about the *pipeline as a whole* —
 its `tasks.py::run_analysis_pipeline` builds the Celery chain/chord/group
-that calls into the other three apps' tasks. No app imports another app's
-`tasks.py` except `videos` importing all three (done lazily, inside the
-function, to avoid a circular import at Django app-loading time).
+that calls into the other three apps' tasks, and `tasks.py::rerun_analysis_only`
+re-triggers just the analysis step when `export_settings` fields that
+affect it change. No app imports another app's `tasks.py` except `videos`
+(done lazily, inside the function, to avoid a circular import at Django
+app-loading time) and `export_settings.services`, which lazily imports
+`apps.videos.tasks.rerun_analysis_only` the same way.
+
+`apps.videos.views.video_detail` is the one place a view reaches into
+another app at the Python level rather than through a template
+`{% include %}` (the norm — see the transcript/scenes/highlights partials
+composed into `videos/detail.html`) — it builds an `ExportSettingsForm`
+because a bound form can't be constructed purely from a reverse-relation
+lookup in a template. Treated as an accepted, narrow exception, not a
+pattern to spread further.
 
 ## Data model
 
 ```
 User ─< Project ─< UploadedVideo ─┬─1 Transcript ─< TranscriptSegment
                                    ├─< Scene
-                                   └─1 AnalysisResult ─< Highlight
+                                   ├─1 AnalysisResult ─< Highlight
+                                   └─< ExportSettings
 
 AIProviderConfig  (standalone catalog, no FK — see docs/ai_pipeline.md)
 ```
@@ -98,6 +111,13 @@ chain(
     ),
 ).apply_async()
 ```
+
+`apps.videos.tasks.rerun_analysis_only(video_id)` dispatches just
+`generate_analysis_task.si(video_id)` standalone — no chain/chord needed,
+since that task already owns its full status transition
+(`ANALYZING` → `COMPLETED`) and idempotent write. Used when
+`export_settings` fields that affect analysis change on an already-
+`COMPLETED` video; see `apps/export_settings/services.py::maybe_rerun_analysis`.
 
 Every task signature is **immutable** (`.si()`) and takes only `video_id` —
 tasks always read/write their input/output via PostgreSQL, never through

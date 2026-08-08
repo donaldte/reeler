@@ -9,20 +9,12 @@ from collections.abc import Callable
 from pydantic import BaseModel, ValidationError
 
 from domain.ai.base import AnalysisDTO, HighlightDTO
+from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS
 from domain.exceptions import ProviderResponseParseError
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult
 
 ChatMessages = list[dict[str, str]]
-
-# Measured on real CPU-only hardware (see docs/ai_pipeline.md#operational-notes):
-# a 1638-token prompt took 85s to prefill but only generated 17 output
-# tokens in 5s -- generation ran at ~3.4 tokens/sec, far slower than
-# prefill's ~19 tokens/sec. Our real analysis response (title, description,
-# hashtags, several highlights with rationale) is a few hundred output
-# tokens, not 17 -- generation time, not prompt size, is the dominant cost.
-# Fewer requested highlights means less output to generate.
-DEFAULT_NUM_HIGHLIGHTS = 3
 
 # Bounds how much transcript text goes into the prompt, independent of
 # source video length. Confirmed in practice: an unbounded prompt for a

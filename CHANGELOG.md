@@ -25,5 +25,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Documentation: architecture, AI pipeline, quick start, installation,
   deployment, Docker, coding standards, development, API, roadmap,
   backlog.
+- **Phase 2**: `apps.export_settings.ExportSettings` — the full
+  customization schema from the brief (duration, aspect ratio, captions,
+  font, color theme, transitions, music, subtitle language, voice-over,
+  AI creativity, B-roll type, image-gen/web-search toggles, highlight
+  count, quality, export format), a "Customize" panel on the video detail
+  page, and a matching `/api/v1/videos/{id}/settings/` endpoint.
+  `num_highlights` and AI creativity level (mapped to LLM `temperature`)
+  are wired to live behavior and re-run just the analysis step on change;
+  the rest are stored for the phase 3 renderer to read later.
 
-[Unreleased]: https://github.com/reeler-video/reeler/compare/main...HEAD
+### Fixed
+
+- Pipeline tasks could get stuck indefinitely showing an in-progress
+  status with no error if a transient provider failure exhausted its
+  Celery retries — `@shared_task(autoretry_for=...)` re-raises outside the
+  task function once retries run out, where no in-function try/except can
+  catch it. Replaced with `apps.videos.task_utils.pipeline_task_guard`,
+  which handles retries manually and always marks the video `FAILED` with
+  a message on any unrecoverable error.
+- Ollama/OpenRouter 4xx responses (e.g. a model that was never pulled)
+  were being retried as transient failures instead of failing fast.
+- The analysis prompt embedded the full transcript with no size cap,
+  scaling unbounded with source video length; now downsampled to a fixed
+  character budget, evenly across the whole video.
+- `docker-compose.yml`'s `.:/app` bind mount shadowed the image's
+  `.venv`, breaking every installed package in `web`/`worker` at
+  container start; added an anonymous `/app/.venv` volume.
+- `docker-compose.prod.yml`'s `ports: []` overrides were silent no-ops
+  (Compose merges, not replaces, `ports`/`volumes` across `-f` files) —
+  switched to Compose's `!override` merge-control tag.
+
+[Unreleased]: https://github.com/donaldte/reeler/compare/main...HEAD

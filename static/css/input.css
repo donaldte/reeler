@@ -5,3 +5,9 @@
    more predictable build. */
 @source "../../templates";
 @source "../../apps/**/templates";
+
+/* Alpine.js convention: hides x-cloak'd elements until Alpine initializes,
+   avoiding a flash of the uncollapsed panel before x-show takes effect. */
+[x-cloak] {
+  display: none;
+}

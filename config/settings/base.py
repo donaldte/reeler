@@ -43,6 +43,7 @@ LOCAL_APPS = [
     "apps.transcripts",
     "apps.scenes",
     "apps.highlights",
+    "apps.export_settings",
     "apps.ai_providers",
 ]
 

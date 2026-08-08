@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import ClassVar
 
+from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS, DEFAULT_TEMPERATURE
 from domain.scene_detection.base import SceneDTO
 from domain.transcription.base import TranscriptionResult
 
@@ -32,6 +33,12 @@ class LLMProvider(ABC):
     """Interface every highlight-extraction / summarization backend must
     implement. Implementations live in `domain/ai/providers/` and are
     registered in `domain/ai/registry.py`'s LLM_PROVIDERS mapping.
+
+    `num_highlights` and `temperature` are user-configurable via
+    `apps.export_settings.models.ExportSettings` — new providers must
+    accept both (ignoring `temperature` if the backend has no equivalent
+    is fine; ignoring `num_highlights` is not, since it changes what the
+    prompt itself asks for). See docs/ai_pipeline.md.
     """
 
     name: ClassVar[str]
@@ -43,6 +50,8 @@ class LLMProvider(ABC):
         transcript: TranscriptionResult,
         scenes: list[SceneDTO],
         video_duration: float,
+        num_highlights: int = DEFAULT_NUM_HIGHLIGHTS,
+        temperature: float = DEFAULT_TEMPERATURE,
     ) -> AnalysisDTO:
         raise NotImplementedError
 

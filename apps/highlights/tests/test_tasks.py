@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from apps.export_settings.models import ExportSettings
+from apps.export_settings.tests.factories import ExportSettingsFactory
 from apps.highlights.models import AnalysisResult
 from apps.highlights.tasks import generate_analysis_task
 from apps.scenes.models import Scene
@@ -76,3 +78,34 @@ def test_generate_analysis_task_passes_reconstructed_transcript_and_scenes():
     assert call_kwargs["transcript"].full_text == "hi"
     assert len(call_kwargs["scenes"]) == 1
     assert call_kwargs["video_duration"] == 30.0
+
+
+def test_generate_analysis_task_uses_video_export_settings():
+    video = _video_with_transcript_and_scenes()
+    ExportSettingsFactory(
+        video=video,
+        num_highlights=7,
+        ai_creativity_level=ExportSettings.AiCreativityLevel.CREATIVE,
+    )
+    fake_provider = MagicMock()
+    fake_provider.generate_analysis.return_value = FAKE_ANALYSIS
+
+    with patch("apps.highlights.tasks.get_llm_provider", return_value=fake_provider):
+        generate_analysis_task(str(video.id))
+
+    call_kwargs = fake_provider.generate_analysis.call_args.kwargs
+    assert call_kwargs["num_highlights"] == 7
+    assert call_kwargs["temperature"] == 0.9  # CREATIVE
+
+
+def test_generate_analysis_task_uses_default_settings_when_none_saved():
+    video = _video_with_transcript_and_scenes()
+    fake_provider = MagicMock()
+    fake_provider.generate_analysis.return_value = FAKE_ANALYSIS
+
+    with patch("apps.highlights.tasks.get_llm_provider", return_value=fake_provider):
+        generate_analysis_task(str(video.id))
+
+    call_kwargs = fake_provider.generate_analysis.call_args.kwargs
+    assert call_kwargs["num_highlights"] == 3  # ExportSettings default
+    assert call_kwargs["temperature"] == 0.5  # BALANCED default

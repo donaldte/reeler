@@ -7,6 +7,7 @@ from typing import ClassVar
 import httpx
 
 from domain.ai.base import AnalysisDTO, LLMProvider
+from domain.ai.defaults import DEFAULT_NUM_HIGHLIGHTS, DEFAULT_TEMPERATURE
 from domain.ai.prompts.highlight_extraction import (
     ChatMessages,
     generate_analysis_with_repair,
@@ -32,17 +33,24 @@ class OllamaProvider(LLMProvider):
         self.timeout = timeout
 
     def generate_analysis(
-        self, *, transcript: TranscriptionResult, scenes: list[SceneDTO], video_duration: float
+        self,
+        *,
+        transcript: TranscriptionResult,
+        scenes: list[SceneDTO],
+        video_duration: float,
+        num_highlights: int = DEFAULT_NUM_HIGHLIGHTS,
+        temperature: float = DEFAULT_TEMPERATURE,
     ) -> AnalysisDTO:
         schema, raw = generate_analysis_with_repair(
-            send_chat=self._send_chat,
+            send_chat=lambda messages: self._send_chat(messages, temperature=temperature),
             transcript=transcript,
             scenes=scenes,
             video_duration=video_duration,
+            num_highlights=num_highlights,
         )
         return schema_to_dto(schema, provider=self.name, model=self.model, raw_text=raw)
 
-    def _send_chat(self, messages: ChatMessages) -> str:
+    def _send_chat(self, messages: ChatMessages, *, temperature: float) -> str:
         try:
             response = httpx.post(
                 f"{self.base_url}/api/chat",
@@ -51,6 +59,7 @@ class OllamaProvider(LLMProvider):
                     "messages": messages,
                     "stream": False,
                     "format": "json",
+                    "options": {"temperature": temperature},
                 },
                 timeout=self.timeout,
             )

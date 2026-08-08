@@ -37,9 +37,11 @@ def test_permanent_error_marks_failed_and_reraises():
     video = UploadedVideoFactory()
     task = _fake_task(retries=0)
 
-    with pytest.raises(PermanentPipelineError):
-        with pipeline_task_guard(task, str(video.id), "transcript"):
-            raise PermanentPipelineError("corrupt file")
+    with (
+        pytest.raises(PermanentPipelineError),
+        pipeline_task_guard(task, str(video.id), "transcript"),
+    ):
+        raise PermanentPipelineError("corrupt file")
 
     video.refresh_from_db()
     assert video.status == "failed"
@@ -51,9 +53,8 @@ def test_transient_error_with_retries_left_calls_self_retry_and_does_not_mark_fa
     video = UploadedVideoFactory()
     task = _fake_task(retries=0, max_retries=3)
 
-    with pytest.raises(_RetryCalled):
-        with pipeline_task_guard(task, str(video.id), "transcript"):
-            raise TransientProviderError("ollama connection refused")
+    with pytest.raises(_RetryCalled), pipeline_task_guard(task, str(video.id), "transcript"):
+        raise TransientProviderError("ollama connection refused")
 
     # Not marked failed — a retry was scheduled instead. This is the
     # in-progress case; only exhausting retries should mark FAILED.
@@ -69,9 +70,11 @@ def test_transient_error_exhausted_retries_marks_failed_and_reraises_original():
     video = UploadedVideoFactory()
     task = _fake_task(retries=3, max_retries=3)  # already at the limit
 
-    with pytest.raises(TransientProviderError, match="ollama timed out"):
-        with pipeline_task_guard(task, str(video.id), "analysis"):
-            raise TransientProviderError("ollama timed out")
+    with (
+        pytest.raises(TransientProviderError, match="ollama timed out"),
+        pipeline_task_guard(task, str(video.id), "analysis"),
+    ):
+        raise TransientProviderError("ollama timed out")
 
     video.refresh_from_db()
     assert video.status == "failed"
@@ -88,9 +91,11 @@ def test_unexpected_exception_marks_failed_and_reraises():
     video = UploadedVideoFactory()
     task = _fake_task(retries=0)
 
-    with pytest.raises(RuntimeError, match="totally unexpected"):
-        with pipeline_task_guard(task, str(video.id), "scenes"):
-            raise RuntimeError("totally unexpected")
+    with (
+        pytest.raises(RuntimeError, match="totally unexpected"),
+        pipeline_task_guard(task, str(video.id), "scenes"),
+    ):
+        raise RuntimeError("totally unexpected")
 
     video.refresh_from_db()
     assert video.status == "failed"
@@ -115,10 +120,12 @@ def test_retry_delay_backs_off_and_caps():
     video = UploadedVideoFactory()
     task = _fake_task(retries=5, max_retries=10)  # not yet exhausted
 
-    with patch.object(task, "retry", wraps=task.retry) as mock_retry:
-        with pytest.raises(_RetryCalled):
-            with pipeline_task_guard(task, str(video.id), "transcript"):
-                raise TransientProviderError("boom")
+    with (
+        patch.object(task, "retry", wraps=task.retry) as mock_retry,
+        pytest.raises(_RetryCalled),
+        pipeline_task_guard(task, str(video.id), "transcript"),
+    ):
+        raise TransientProviderError("boom")
 
     # 60 * 2**5 = 1920, capped at RETRY_MAX_DELAY_SECONDS (900)
     _, kwargs = mock_retry.call_args

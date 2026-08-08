@@ -70,3 +70,18 @@ def run_analysis_pipeline(video_id: str) -> None:
         ),
     )
     workflow.apply_async()
+
+
+def rerun_analysis_only(video_id: str) -> None:
+    """Re-runs just the LLM analysis step — used when export settings that
+    affect analysis (num_highlights, AI creativity level) change on an
+    already-analyzed video. See apps/export_settings/services.py.
+
+    Skips metadata/transcript/scenes entirely: generate_analysis_task
+    already handles its own status transitions (ANALYZING -> COMPLETED)
+    and idempotent delete-then-recreate write, so calling it standalone is
+    exactly a "redo just this step" — no separate task needed.
+    """
+    from apps.highlights.tasks import generate_analysis_task
+
+    generate_analysis_task.si(video_id).apply_async()

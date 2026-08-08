@@ -5,6 +5,7 @@ from celery import Task, shared_task
 from django.conf import settings
 from django.db import transaction
 
+from apps.export_settings.services import get_or_create_export_settings
 from apps.highlights.models import AnalysisResult, Highlight
 from apps.transcripts.models import Transcript
 from apps.videos.constants import PIPELINE_STEP_ANALYSIS, STEP_DONE, STEP_RUNNING
@@ -38,10 +39,15 @@ def generate_analysis_task(self: Task, video_id: str) -> str:
         scenes = [
             SceneDTO(index=s.index, start=s.start_time, end=s.end_time) for s in video.scenes.all()
         ]
+        export_settings = get_or_create_export_settings(video)
 
         provider = get_llm_provider(settings)
         analysis = provider.generate_analysis(
-            transcript=transcript, scenes=scenes, video_duration=video.duration_seconds or 0.0
+            transcript=transcript,
+            scenes=scenes,
+            video_duration=video.duration_seconds or 0.0,
+            num_highlights=export_settings.num_highlights,
+            temperature=export_settings.temperature,
         )
 
         with transaction.atomic():

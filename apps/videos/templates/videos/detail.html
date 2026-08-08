@@ -33,6 +33,7 @@
 
   {% if video.status == "completed" %}
     {% include "highlights/_analysis_partial.html" %}
+    {% include "export_settings/_settings_form.html" with form=export_settings_form %}
     {% include "transcripts/_transcript_partial.html" %}
     {% include "scenes/_scenes_partial.html" %}
   {% endif %}

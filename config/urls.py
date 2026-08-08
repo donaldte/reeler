@@ -15,6 +15,7 @@ urlpatterns = [
     path("api/v1/", include("apps.transcripts.api.urls")),
     path("api/v1/", include("apps.scenes.api.urls")),
     path("api/v1/", include("apps.highlights.api.urls")),
+    path("api/v1/", include("apps.export_settings.api.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/schema/swagger-ui/",
@@ -22,6 +23,7 @@ urlpatterns = [
         name="swagger-ui",
     ),
     # HTML frontend
+    path("", include("apps.export_settings.urls")),
     path("", include("apps.videos.urls")),
 ]
 

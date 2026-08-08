@@ -1,0 +1,63 @@
+<section x-data="{ open: false }" class="rounded-md border border-slate-800">
+  <button
+    type="button"
+    @click="open = !open"
+    class="flex w-full items-center justify-between px-4 py-3 text-left font-medium"
+  >
+    Customize
+    <span x-text="open ? '−' : '+'" class="text-slate-500"></span>
+  </button>
+
+  <div x-show="open" x-cloak class="border-t border-slate-800 px-4 py-4">
+    <form method="post" action="{% url 'export_settings:save' video.id %}" class="space-y-6">
+      {% csrf_token %}
+
+      <div>
+        <h3 class="text-sm font-semibold text-slate-200">Analysis settings</h3>
+        <p class="text-xs text-slate-500 mb-3">
+          Changing these re-runs the AI analysis (summary, title, highlights) with your new preferences.
+        </p>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="block text-sm text-slate-400 mb-1" for="{{ form.num_highlights.id_for_label }}">
+              {{ form.num_highlights.label }}
+            </label>
+            {{ form.num_highlights }}
+            {% for error in form.num_highlights.errors %}
+              <p class="text-sm text-red-400 mt-1">{{ error }}</p>
+            {% endfor %}
+          </div>
+          <div>
+            <label class="block text-sm text-slate-400 mb-1" for="{{ form.ai_creativity_level.id_for_label }}">
+              AI creativity level
+            </label>
+            {{ form.ai_creativity_level }}
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="text-sm font-semibold text-slate-200">Export settings</h3>
+        <p class="text-xs text-slate-500 mb-3">
+          Saved for later — used once rendering the final video is available (Phase 3). No effect yet.
+        </p>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {% for field in form %}
+            {% if field.name != "num_highlights" and field.name != "ai_creativity_level" %}
+              <div>
+                <label class="block text-sm text-slate-400 mb-1" for="{{ field.id_for_label }}">
+                  {{ field.label }}
+                </label>
+                {{ field }}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+
+      <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 font-medium hover:bg-indigo-500">
+        Save settings
+      </button>
+    </form>
+  </div>
+</section>

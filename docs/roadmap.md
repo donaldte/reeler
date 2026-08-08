@@ -15,28 +15,37 @@ full vision described in the project brief.
   OpenRouter as a hosted alternative) for STT and LLM capabilities.
 - Production-shaped repo: Docker/Compose, CI, tests, docs, dev tooling.
 
-## Phase 2 — customization settings UI
+## Phase 2 — customization settings UI — done
 
-The brief calls for a review-and-customize step before rendering: output
-duration, aspect ratio (16:9/9:16/1:1), caption style/font/color theme,
-transition style, music style, subtitle language, voice-over, AI
-creativity level, B-roll type, image-gen on/off, internet media search
-on/off, number of highlights, quality, export format. This needs:
-
-- An `ExportSettings` model (per-video, one-to-many so a user can render
-  multiple variants from one analysis).
-- A settings form/UI on the video detail page.
-- Extending the highlight-extraction prompt to accept "creativity level"
-  and "number of highlights" as parameters (`domain/ai/prompts/` already
-  takes `num_highlights` — creativity level would map to LLM temperature/
-  prompt framing).
+- `apps.export_settings.models.ExportSettings` — the full schema from the
+  brief (output duration, aspect ratio, caption style/font/color theme,
+  transition style, music style, subtitle language, voice-over style, AI
+  creativity level, B-roll type, image-gen toggle, internet media search
+  toggle, number of highlights, video quality, export format). FK (not
+  O2O) to `UploadedVideo`, so phase 3 can support multiple render variants
+  from one analysis later; phase 2 always works with the latest row via
+  `get_or_create_export_settings`.
+- A "Customize" panel embedded on the video detail page (plain form POST
+  + Django messages, no separate page) and a matching
+  `GET`/`PATCH /api/v1/videos/{id}/settings/` API.
+- Two fields are actually wired to live behavior today —
+  `num_highlights` and `ai_creativity_level` (mapped to LLM sampling
+  `temperature`) — both threaded through
+  `domain.ai.base.LLMProvider.generate_analysis` into the Ollama/
+  OpenRouter providers' request payloads. Changing either on an
+  already-`COMPLETED` video re-runs just the analysis step
+  (`apps.videos.tasks.rerun_analysis_only`), not the whole pipeline.
+- Every other field is schema-complete and saved, but genuinely has no
+  effect yet — clearly labeled as such in the UI — until phase 3 exists to
+  read it.
 
 ## Phase 3 — rendering / export pipeline
 
 The actual FFmpeg-driven cut-together of the final short: applying
-captions (burned-in, styled per `ExportSettings`), transitions, zoom/pan
-effects, overlays, B-roll insertion, and background music, driven by the
-selected highlights. This is the largest remaining chunk of work:
+captions (burned-in, styled per `ExportSettings` — which now exists and
+is ready to read from), transitions, zoom/pan effects, overlays, B-roll
+insertion, and background music, driven by the selected highlights. This
+is the largest remaining chunk of work:
 
 - `domain/rendering/` — an FFmpeg command-building layer, likely via a
   filter-graph builder rather than shelling out ad hoc.
