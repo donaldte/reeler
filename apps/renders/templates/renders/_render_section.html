@@ -1,0 +1,19 @@
+<section class="space-y-4">
+  <div class="flex items-center justify-between">
+    <h2 class="text-lg font-semibold">Render</h2>
+    <form method="post" action="{% url 'renders:start' video.id %}">
+      {% csrf_token %}
+      <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 font-medium hover:bg-indigo-500">
+        Render short video
+      </button>
+    </form>
+  </div>
+
+  <div class="space-y-3">
+    {% for render_job in video.render_jobs.all %}
+      {% include "renders/_status_fragment.html" %}
+    {% empty %}
+      <p class="text-slate-500 text-sm">No renders yet.</p>
+    {% endfor %}
+  </div>
+</section>

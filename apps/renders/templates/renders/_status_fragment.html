@@ -1,0 +1,29 @@
+{% load formatting %}
+<div id="render-status-{{ render_job.id }}"
+     class="rounded-md border border-slate-800 p-4 space-y-3"
+     hx-get="{% url 'renders:status_fragment' render_job.id %}"
+     {% if not render_job.is_terminal %}hx-trigger="every 2s"{% endif %}
+     hx-swap="outerHTML">
+  <div class="flex items-center justify-between">
+    <span class="font-medium">{{ render_job.get_status_display }}{% if render_job.stage %} — {{ render_job.stage }}{% endif %}</span>
+    <span class="text-sm text-slate-400">{{ render_job.progress_percent }}%</span>
+  </div>
+
+  <div class="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+    <div class="h-full bg-indigo-500 transition-all" style="width: {{ render_job.progress_percent }}%"></div>
+  </div>
+
+  {% if render_job.error_message %}
+    <p class="text-sm text-red-400">{{ render_job.error_message }}</p>
+  {% endif %}
+
+  {% if render_job.status == "completed" and render_job.output_file %}
+    <a href="{{ render_job.output_file.url }}"
+       class="inline-block rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500"
+       download>
+      Download
+    </a>
+  {% endif %}
+
+  <p class="text-xs text-slate-500">Started {{ render_job.created_at }}</p>
+</div>

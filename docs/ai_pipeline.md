@@ -138,3 +138,11 @@ backend appears, promoting it to a registry-based capability (mirroring
 
   A 404 (model never pulled), on the other hand, now fails immediately
   rather than retrying — see `domain/ai/providers/http_utils.py`.
+- **Word-level timestamps are off** (`FasterWhisperProvider`'s
+  `word_timestamps=False`) — segment-level timestamps are enough for
+  scene-aligned highlight extraction, but it's the reason
+  `domain/rendering/captions.py`'s `caption_style="karaoke"` currently
+  falls back to the same styling as `"bold"` rather than true word-by-word
+  highlighting. Flipping this on (and threading the finer-grained timing
+  through `TranscriptSegment`) is the concrete next step for that —
+  tracked in [docs/roadmap.md](roadmap.md).

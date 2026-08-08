@@ -34,6 +34,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `num_highlights` and AI creativity level (mapped to LLM `temperature`)
   are wired to live behavior and re-run just the analysis step on change;
   the rest are stored for the phase 3 renderer to read later.
+- **Phase 3**: `domain/rendering/` + `apps.renders.RenderJob` — the actual
+  FFmpeg render. Selects highlights chronologically (greedily fit to
+  `output_duration_seconds`), crops/scales to the target aspect ratio,
+  burns in styled `.ass` captions with timestamps remapped onto the new
+  concatenated timeline, applies transitions, and encodes to the
+  requested quality/format. A "Render" panel on the video detail page and
+  `/api/v1/videos/{id}/renders/` + `/api/v1/render-jobs/{id}/`.
+  `RenderJob.settings_snapshot` freezes the rendering-relevant
+  `ExportSettings` fields at creation time so a completed render can't
+  silently drift if settings change afterward. B-roll and background
+  music remain deferred to phase 4; transitions/karaoke captions/subtitle
+  translation ship as disclosed simplifications — see
+  [docs/roadmap.md](docs/roadmap.md).
+- `apps.common.task_utils.task_failure_guard` — the never-stuck-silently
+  Celery failure-handling mechanism (see Fixed, below) generalized out of
+  `apps.videos.task_utils.pipeline_task_guard` so `apps.renders` gets the
+  identical guarantee without duplicating it.
 
 ### Fixed
 

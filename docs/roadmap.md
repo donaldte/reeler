@@ -39,23 +39,50 @@ full vision described in the project brief.
   effect yet — clearly labeled as such in the UI — until phase 3 exists to
   read it.
 
-## Phase 3 — rendering / export pipeline
+## Phase 3 — rendering / export pipeline — done
 
-The actual FFmpeg-driven cut-together of the final short: applying
-captions (burned-in, styled per `ExportSettings` — which now exists and
-is ready to read from), transitions, zoom/pan effects, overlays, B-roll
-insertion, and background music, driven by the selected highlights. This
-is the largest remaining chunk of work:
+The FFmpeg-driven cut-together of the final short, from the selected
+highlights through to a downloadable video:
 
-- `domain/rendering/` — an FFmpeg command-building layer, likely via a
-  filter-graph builder rather than shelling out ad hoc.
-  Follows the same wrapper-not-binding pattern as `domain/media/ffprobe.py`.
-- `apps/renders/` — `RenderJob` model, Celery task, progress reporting
-  (same `pipeline_steps` pattern as the analysis pipeline).
-  ​- Caption burn-in: generate an `.ass`/`.srt` from `TranscriptSegment`s,
-  styled per `ExportSettings`, burned in via ffmpeg's `subtitles` filter.
-- Background music: needs a royalty-free music library or generation
-  step (see below) plus loudness normalization against dialogue.
+- `domain/rendering/` — pure command-building layer (no provider/registry
+  abstraction — there's only one way to invoke ffmpeg): `clip_selection.py`
+  (chronological, greedily fit to `output_duration_seconds`),
+  `dimensions.py` (aspect-ratio/quality → resolution table + center-crop
+  math), `captions.py` (`.ass` generation with per-clip timestamp
+  remapping), `ffmpeg_commands.py` (pure argv builders), `renderer.py`
+  (the one module with subprocess side effects — same
+  fixed-argv/no-shell/captured-stderr pattern as `domain/media/ffprobe.py`).
+- `apps/renders/` — `RenderJob` (FK to both `UploadedVideo` and
+  `ExportSettings`, plus a frozen `settings_snapshot` JSON so a completed
+  render always reflects exactly what was requested even if settings
+  changed afterward), Celery task, progress reporting, a "Render" panel
+  on the video detail page, and `/api/v1/videos/{id}/renders/` +
+  `/api/v1/render-jobs/{id}/`.
+- The `pipeline_task_guard` failure-handling mechanism (see Phase 1's
+  Fixed changelog entry) was generalized into
+  `apps.common.task_utils.task_failure_guard` so `apps/renders` gets the
+  identical never-stuck-silently guarantee without duplicating it.
+
+**Disclosed simplifications, not silent gaps** (see
+`domain/rendering/captions.py`, `ffmpeg_commands.py` docstrings):
+
+- **Transitions**: `fade`/`slide`/`zoom` all currently render as the same
+  short fade-in/fade-out on each clip, not true crossfade between clips.
+  `xfade`-based crossfades need precise stream-timing alignment between
+  two inputs — a real fast-follow once this simpler version is confirmed
+  working on real hardware (see [docs/development.md](development.md) for
+  why command-construction correctness and execution correctness had to
+  be verified separately for this feature).
+- **Karaoke captions**: `caption_style="karaoke"` renders identically to
+  `"bold"` — true word-by-word highlighting needs word-level timestamps,
+  and `FasterWhisperProvider` currently requests `word_timestamps=False`.
+  Flipping that on and threading word-level timing through is the
+  concrete next step for this one.
+- **Subtitle translation**: `subtitle_language` values other than
+  `"auto"`/the transcript's own detected language still render the
+  original-language transcript — no translation capability exists yet.
+- B-roll and background music remain fully deferred to Phase 4 (see
+  below) — `ExportSettings.broll_type`/`music_style` stay saved-but-inert.
 
 ## Phase 4 — media sourcing
 

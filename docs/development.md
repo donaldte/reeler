@@ -59,6 +59,24 @@ stepping through with a debugger, but see the caveat in
 [docs/ai_pipeline.md](ai_pipeline.md#operational-notes) about error
 propagation before using it for anything beyond a quick check.
 
+## Testing ffmpeg-dependent code (`domain/rendering/`, `domain/media/ffprobe.py`)
+
+The test suite deliberately never shells out to a real `ffmpeg` — every
+test mocks `subprocess.run` and asserts on the constructed command
+(`domain/tests/test_rendering_ffmpeg_commands.py`) or the orchestration
+around it (`test_rendering_renderer.py`), the same pattern used for
+`ffprobe` since phase 1. That verifies command *construction* is correct
+but not command *execution* — a subtly wrong filter-graph string would
+still pass every test and only fail against a real ffmpeg binary.
+
+If you change anything in `domain/rendering/`, run a real render
+end-to-end (`make up`, upload a video, wait for analysis, click "Render
+short video", `docker compose logs worker` if it fails) before
+considering the change done — this project's own development happened in
+a sandbox without `ffmpeg`/`docker` installed, so several rounds of this
+exact "tests pass, real command fails" gap were only caught this way (see
+`docs/roadmap.md`'s Phase 3 entry for what shipped as a result).
+
 ## Before opening a PR
 
 `make check`, then see [CONTRIBUTING.md](../CONTRIBUTING.md) and

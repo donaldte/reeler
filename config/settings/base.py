@@ -44,6 +44,7 @@ LOCAL_APPS = [
     "apps.scenes",
     "apps.highlights",
     "apps.export_settings",
+    "apps.renders",
     "apps.ai_providers",
 ]
 

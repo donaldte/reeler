@@ -44,30 +44,37 @@ or `domain/` instead.
 | App | Owns | Depends on |
 |---|---|---|
 | `accounts` | Custom `User` model | — |
-| `common` | `TimeStampedModel`, DRF exception shape, pagination, template filters | — |
-| `videos` | `Project`, `UploadedVideo`; upload flow; pipeline orchestration entrypoint | `accounts` |
+| `common` | `TimeStampedModel`, DRF exception shape, pagination, template filters, `task_utils.task_failure_guard` (shared Celery failure-handling) | — |
+| `videos` | `Project`, `UploadedVideo`; upload flow; pipeline orchestration entrypoint | `accounts`, `common` |
 | `transcripts` | `Transcript`, `TranscriptSegment` | `videos`, `domain.transcription` |
 | `scenes` | `Scene` | `videos`, `domain.scene_detection` |
 | `highlights` | `AnalysisResult`, `Highlight` | `videos`, `transcripts`, `scenes`, `domain.ai`, `export_settings` |
 | `export_settings` | `ExportSettings` — analysis/export customization | `videos` |
+| `renders` | `RenderJob` — FFmpeg render attempts | `videos`, `export_settings`, `highlights`, `transcripts`, `domain.rendering` |
 | `ai_providers` | `AIProviderConfig` catalog (admin visibility only, phase 1) | — |
 
-`apps.videos` is the only app that knows about the *pipeline as a whole* —
-its `tasks.py::run_analysis_pipeline` builds the Celery chain/chord/group
-that calls into the other three apps' tasks, and `tasks.py::rerun_analysis_only`
-re-triggers just the analysis step when `export_settings` fields that
-affect it change. No app imports another app's `tasks.py` except `videos`
-(done lazily, inside the function, to avoid a circular import at Django
-app-loading time) and `export_settings.services`, which lazily imports
-`apps.videos.tasks.rerun_analysis_only` the same way.
+`apps.videos` is the only app that knows about the *analysis pipeline as a
+whole* — its `tasks.py::run_analysis_pipeline` builds the Celery
+chain/chord/group that calls into the transcripts/scenes/highlights apps'
+tasks, and `tasks.py::rerun_analysis_only` re-triggers just the analysis
+step when `export_settings` fields that affect it change. `apps.renders`
+is a separate, parallel entrypoint (`services.py::create_render_job` →
+`tasks.py::render_video_task`) — rendering doesn't extend the analysis
+chain, it's a distinct action the user takes once analysis is done. No app
+imports another app's `tasks.py` at module scope; every cross-app task
+call (`videos` → transcripts/scenes/highlights, `export_settings` →
+`videos.tasks.rerun_analysis_only`, `renders` → itself) is a lazy
+in-function import to avoid circular imports at Django app-loading time.
 
 `apps.videos.views.video_detail` is the one place a view reaches into
 another app at the Python level rather than through a template
-`{% include %}` (the norm — see the transcript/scenes/highlights partials
-composed into `videos/detail.html`) — it builds an `ExportSettingsForm`
-because a bound form can't be constructed purely from a reverse-relation
-lookup in a template. Treated as an accepted, narrow exception, not a
-pattern to spread further.
+`{% include %}` — it builds an `ExportSettingsForm` because a bound form
+can't be constructed purely from a reverse-relation lookup in a template.
+`apps.renders`' UI needed no such exception: `video.render_jobs.all` is a
+plain reverse relation, rendered directly in
+`renders/_render_section.html` the same way the read-only transcript/
+scenes/highlights partials work — reinforcing that the `ExportSettingsForm`
+case really is a narrow, form-specific exception, not a pattern to spread.
 
 ## Data model
 
@@ -75,10 +82,17 @@ pattern to spread further.
 User ─< Project ─< UploadedVideo ─┬─1 Transcript ─< TranscriptSegment
                                    ├─< Scene
                                    ├─1 AnalysisResult ─< Highlight
-                                   └─< ExportSettings
+                                   ├─< ExportSettings
+                                   └─< RenderJob ─→ ExportSettings (FK, traceability only)
 
 AIProviderConfig  (standalone catalog, no FK — see docs/ai_pipeline.md)
 ```
+
+`RenderJob.export_settings` is a live FK kept for admin/traceability, but
+the render task never reads it directly — it reads
+`RenderJob.settings_snapshot`, a JSON copy of the rendering-relevant
+`ExportSettings` fields taken at creation time, so a completed render
+stays accurate even if the video's settings are edited afterward.
 
 Every model inherits `apps.common.models.TimeStampedModel` (UUID primary
 key, `created_at`, `updated_at`). `UploadedVideo` is the pipeline's state
