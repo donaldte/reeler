@@ -109,11 +109,25 @@ the two parallel tasks rather than receiving them as Celery return values.
 
 Each task is idempotent on retry: write-tasks wrap in
 `transaction.atomic()` and delete any existing child rows for the video
-before re-inserting. `domain.exceptions.TransientProviderError` triggers
-Celery's `autoretry_for` (network blips, provider timeouts);
-`PermanentPipelineError` fails the task immediately and calls
-`apps.videos.services.fail_pipeline()`, which marks the video `FAILED` with
-an `error_message` — no silent partial success.
+before re-inserting. Every task body runs inside
+`apps.videos.task_utils.pipeline_task_guard`, which maps failures onto the
+video's status:
+
+- `PermanentPipelineError` → `fail_pipeline()` marks the video `FAILED`
+  with an `error_message` immediately, no retry.
+- `TransientProviderError` → manually retried via `self.retry()`
+  (exponential backoff, capped) *while retries remain*; once exhausted,
+  also `fail_pipeline()`s rather than raising silently into the void.
+- Anything else (a bug, a `SoftTimeLimitExceeded`, ...) → same
+  `fail_pipeline()` safety net, so a video can never end up silently stuck
+  mid-pipeline forever with no error shown.
+
+This is deliberately *not* `@shared_task(autoretry_for=...)` — that
+decorator wraps the whole task call from the outside, so by the time
+retries are exhausted, the re-raise happens in code the task function has
+already exited; nothing inside the function, however broad the
+try/except, can catch it. See `apps/videos/task_utils.py` for the full
+rationale.
 
 **Note on `CELERY_TASK_ALWAYS_EAGER`:** with a real broker (the default),
 `apply_async()` returns immediately and a task's exception is only ever

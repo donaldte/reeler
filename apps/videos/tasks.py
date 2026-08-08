@@ -5,20 +5,14 @@ from celery import Task, chain, chord, group, shared_task
 
 from apps.videos.constants import PIPELINE_STEP_METADATA, STEP_DONE, STEP_RUNNING
 from apps.videos.models import UploadedVideo
-from apps.videos.services import fail_pipeline, set_status, update_pipeline_step
-from domain.exceptions import PermanentPipelineError, TransientProviderError
+from apps.videos.services import set_status, update_pipeline_step
+from apps.videos.task_utils import pipeline_task_guard
 from domain.media.ffprobe import probe
 
 logger = logging.getLogger("reeler")
 
 
-@shared_task(
-    bind=True,
-    acks_late=True,
-    autoretry_for=(TransientProviderError,),
-    retry_backoff=True,
-    retry_kwargs={"max_retries": 3},
-)
+@shared_task(bind=True, acks_late=True, max_retries=3)
 def extract_metadata_task(self: Task, video_id: str) -> str:
     """First pipeline step: run ffprobe and populate UploadedVideo's media
     fields. Naturally idempotent — simply overwrites the fields on retry.
@@ -26,33 +20,30 @@ def extract_metadata_task(self: Task, video_id: str) -> str:
     update_pipeline_step(video_id, PIPELINE_STEP_METADATA, STEP_RUNNING)
     set_status(video_id, UploadedVideo.Status.EXTRACTING_METADATA, progress_percent=5)
 
-    video = UploadedVideo.objects.get(id=video_id)
-    try:
+    with pipeline_task_guard(self, video_id, PIPELINE_STEP_METADATA):
+        video = UploadedVideo.objects.get(id=video_id)
         metadata = probe(Path(video.file.path))
-    except PermanentPipelineError as exc:
-        logger.warning("Metadata extraction failed permanently for %s: %s", video_id, exc)
-        fail_pipeline(video_id, PIPELINE_STEP_METADATA, str(exc))
-        raise
 
-    video.duration_seconds = metadata.duration_seconds
-    video.width = metadata.width
-    video.height = metadata.height
-    video.fps = metadata.fps
-    video.has_audio = metadata.has_audio
-    video.video_codec = metadata.video_codec
-    video.audio_codec = metadata.audio_codec or ""
-    video.file_size_bytes = metadata.file_size_bytes
-    video.save(
-        update_fields=[
-            "duration_seconds", "width", "height", "fps", "has_audio",
-            "video_codec", "audio_codec", "file_size_bytes", "updated_at",
-        ]
-    )  # fmt: skip
+        video.duration_seconds = metadata.duration_seconds
+        video.width = metadata.width
+        video.height = metadata.height
+        video.fps = metadata.fps
+        video.has_audio = metadata.has_audio
+        video.video_codec = metadata.video_codec
+        video.audio_codec = metadata.audio_codec or ""
+        video.file_size_bytes = metadata.file_size_bytes
+        video.save(
+            update_fields=[
+                "duration_seconds", "width", "height", "fps", "has_audio",
+                "video_codec", "audio_codec", "file_size_bytes", "updated_at",
+            ]
+        )  # fmt: skip
 
-    update_pipeline_step(video_id, PIPELINE_STEP_METADATA, STEP_DONE)
-    set_status(
-        video_id, UploadedVideo.Status.TRANSCRIBING_AND_DETECTING_SCENES, progress_percent=15
-    )
+        update_pipeline_step(video_id, PIPELINE_STEP_METADATA, STEP_DONE)
+        set_status(
+            video_id, UploadedVideo.Status.TRANSCRIBING_AND_DETECTING_SCENES, progress_percent=15
+        )
+
     return video_id
 
 
