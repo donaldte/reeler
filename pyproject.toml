@@ -35,7 +35,7 @@ dev = [
   "pytest-cov>=5.0",
   "pytest-mock>=3.14",
   "factory-boy>=3.3",
-  "pre-commit>=3.8",
+  "pre-commit>=4.6.2",
   "commitizen>=3.29",
 ]
 
