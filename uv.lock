@@ -1739,7 +1739,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "commitizen", specifier = ">=3.29" },
-    { name = "django-stubs", extras = ["compatible-mypy"], specifier = ">=5.0" },
+    { name = "django-stubs", extras = ["compatible-mypy"], specifier = ">=6.0.9" },
     { name = "djangorestframework-stubs", specifier = ">=3.15" },
     { name = "factory-boy", specifier = ">=3.3" },
     { name = "mypy", specifier = ">=1.11" },
